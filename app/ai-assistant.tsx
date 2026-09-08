@@ -35,7 +35,7 @@ export function AIAssistant({ sceneActionsRef }: { sceneActionsRef: React.Mutabl
     return (
       <button 
         onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 transition-colors z-50"
+        style={{ position: 'fixed', bottom: '24px', right: '24px', width: '56px', height: '56px', backgroundColor: '#4f46e5', color: 'white', borderRadius: '50%', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, border: 'none', cursor: 'pointer' }}
         title="Gemini AI Assistant"
       >
         <Sparkles size={24} />
@@ -44,24 +44,24 @@ export function AIAssistant({ sceneActionsRef }: { sceneActionsRef: React.Mutabl
   }
 
   return (
-    <div className="fixed bottom-6 right-6 w-96 bg-white/95 backdrop-blur shadow-2xl rounded-2xl border border-indigo-100 z-50 flex flex-col overflow-hidden max-h-[80vh]">
-      <div className="bg-indigo-600 text-white px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2 font-semibold">
+    <div style={{ position: 'fixed', bottom: '24px', right: '24px', width: '380px', backgroundColor: 'rgba(255, 255, 255, 0.95)', backdropFilter: 'blur(12px)', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', borderRadius: '16px', border: '1px solid #e0e7ff', zIndex: 9999, display: 'flex', flexDirection: 'column', overflow: 'hidden', maxHeight: '80vh' }}>
+      <div style={{ backgroundColor: '#4f46e5', color: 'white', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
           <Sparkles size={18} />
           Gemini AI Assistant
         </div>
-        <button onClick={() => setOpen(false)} className="text-indigo-100 hover:text-white transition">
+        <button onClick={() => setOpen(false)} style={{ color: '#e0e7ff', background: 'transparent', border: 'none', cursor: 'pointer' }}>
           <X size={20} />
         </button>
       </div>
       
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 text-sm text-slate-800">
-        <p className="text-slate-500">I can read the 3D viewer and MRI scans using Gemini Vision.</p>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '14px', color: '#1e293b' }}>
+        <p style={{ color: '#64748b', margin: 0 }}>I can read the 3D viewer and MRI scans using Gemini Vision.</p>
         
         <textarea 
           value={prompt} 
           onChange={(e) => setPrompt(e.target.value)}
-          className="w-full p-2 border border-slate-200 rounded-md bg-slate-50 text-xs text-slate-700 focus:outline-none focus:border-indigo-400"
+          style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: '#f8fafc', color: '#334155', fontSize: '13px', outline: 'none', resize: 'vertical' }}
           rows={3}
           placeholder="Ask something about the scene..."
         />
@@ -69,21 +69,21 @@ export function AIAssistant({ sceneActionsRef }: { sceneActionsRef: React.Mutabl
         <button 
           onClick={analyzeScreen} 
           disabled={loading}
-          className="w-full bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md py-2 font-semibold hover:bg-indigo-100 transition flex items-center justify-center gap-2 disabled:opacity-50"
+          style={{ width: '100%', backgroundColor: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', borderRadius: '8px', padding: '10px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.7 : 1 }}
         >
           {loading ? <Loader2 size={16} className="animate-spin" /> : <Maximize2 size={16} />}
           {loading ? 'Analyzing Scene...' : 'Analyze Current View'}
         </button>
 
         {snapshot && (
-          <div className="border border-slate-200 rounded-md overflow-hidden relative">
-             <div className="absolute top-1 left-1 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded">Screen Snapshot</div>
-             <img src={snapshot} alt="Captured Scene" className="w-full h-32 object-cover object-center" />
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', position: 'relative' }}>
+             <div style={{ position: 'absolute', top: '4px', left: '4px', backgroundColor: 'rgba(0,0,0,0.5)', color: 'white', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>Screen Snapshot</div>
+             <img src={snapshot} alt="Captured Scene" style={{ width: '100%', height: '160px', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
           </div>
         )}
 
         {suggestion && (
-          <div className="bg-slate-50 border border-slate-100 p-3 rounded-lg leading-relaxed prose prose-sm prose-indigo">
+          <div style={{ backgroundColor: '#f8fafc', border: '1px solid #f1f5f9', padding: '16px', borderRadius: '12px', lineHeight: 1.6, fontSize: '13px', color: '#334155' }}>
              <div dangerouslySetInnerHTML={{ __html: suggestion.replace(/\n/g, '<br/>') }} />
           </div>
         )}
