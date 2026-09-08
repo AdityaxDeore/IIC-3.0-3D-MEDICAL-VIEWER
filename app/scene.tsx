@@ -157,7 +157,9 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
     scene.add(mesh);
     const overlayElement = document.getElementById('mri-editor-overlay');
     if (overlayElement) {
-      mriEditorRef.current = new MriEditor(mesh, camera, renderer.domElement, overlayElement);
+      mriEditorRef.current = new MriEditor(mesh, camera, renderer.domElement, overlayElement, () => {
+         dirtyRef.current = true;
+      });
     }
     dirty = true;
   };

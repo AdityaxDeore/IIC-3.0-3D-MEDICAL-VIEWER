@@ -17,12 +17,14 @@ export class MriEditor {
   private initialPosition = new T.Vector3();
   private initialRotation = new T.Euler();
   private initialPointerWorld = new T.Vector3();
+  public onChange?: () => void;
   
-  constructor(mesh: T.Mesh, camera: T.PerspectiveCamera, domElement: HTMLElement, overlay: HTMLElement) {
+  constructor(mesh: T.Mesh, camera: T.PerspectiveCamera, domElement: HTMLElement, overlay: HTMLElement, onChange?: () => void) {
     this.mesh = mesh;
     this.camera = camera;
     this.domElement = domElement;
     this.overlay = overlay;
+    this.onChange = onChange;
     
     this.createHandles();
     this.bindEvents();
@@ -80,20 +82,21 @@ export class MriEditor {
     document.addEventListener('pointerup', this.onPointerUp);
   };
   
-  private bindEvents() {
-    this.domElement.addEventListener('pointerdown', (e) => {
-       if (this.mode === 'align') {
-          const world = this.getPointerWorld(e);
-          if (world) {
-             const local = this.mesh.worldToLocal(world.clone());
-             const geoSize = 1.5;
-             // Check if click is inside the plane boundaries
-             if (Math.abs(local.x) <= geoSize/2 && Math.abs(local.y) <= geoSize/2) {
-                this.onPointerDown(null, e);
-             }
+  private canvasPointerDownHandler = (e: PointerEvent) => {
+    if (this.mode === 'align') {
+       const world = this.getPointerWorld(e);
+       if (world) {
+          const local = this.mesh.worldToLocal(world.clone());
+          const geoSize = 1.5;
+          if (Math.abs(local.x) <= geoSize/2 && Math.abs(local.y) <= geoSize/2) {
+             this.onPointerDown(null, e);
           }
        }
-    }, { capture: true });
+    }
+  };
+
+  private bindEvents() {
+    this.domElement.addEventListener('pointerdown', this.canvasPointerDownHandler, { capture: true });
   }
   
   private getPointerWorld(e: PointerEvent): T.Vector3 | null {
@@ -132,6 +135,7 @@ export class MriEditor {
        // ALIGN translation logic
        const translation = currentWorld.clone().sub(this.initialPointerWorld);
        this.mesh.position.copy(this.initialPosition).add(translation);
+       if (this.onChange) this.onChange();
        return;
     }
     
@@ -144,6 +148,7 @@ export class MriEditor {
        const euler = new T.Euler().copy(this.initialRotation);
        this.mesh.quaternion.setFromEuler(euler);
        this.mesh.rotateZ(angleDelta);
+       if (this.onChange) this.onChange();
        return;
     }
     
@@ -180,6 +185,7 @@ export class MriEditor {
     
     this.mesh.position.copy(this.initialPosition).add(centerShiftLocal);
     this.mesh.scale.set(Math.max(0.01, scaleX), Math.max(0.01, scaleY), 1);
+    if (this.onChange) this.onChange();
   };
   
   private onPointerUp = () => {
@@ -231,5 +237,8 @@ export class MriEditor {
   
   public dispose() {
     Object.values(this.handles).forEach(el => el.remove());
+    this.domElement.removeEventListener('pointerdown', this.canvasPointerDownHandler, { capture: true });
+    document.removeEventListener('pointermove', this.onPointerMove);
+    document.removeEventListener('pointerup', this.onPointerUp);
   }
 }
