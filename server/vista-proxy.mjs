@@ -64,6 +64,9 @@ const CANDIDATES = [
 ].filter((v, i, all) => all.indexOf(v) === i);
 const STATUS_URL = env.VISTA_STATUS_URL || 'https://health.api.nvidia.com/v1/status';
 
+/** Self-hosted TotalSegmentator HTTP service (MRI/CT organ + bone segmentation). */
+const TOTALSEG_URL = env.TOTALSEG_URL || 'http://localhost:8001/segment';
+
 /**
  * Origin the inference service can reach to download an uploaded scan.
  * A local NIM in Docker reaches the host at host.docker.internal, so uploads
@@ -205,6 +208,41 @@ const server = createServer(async (req, res) => {
       return createReadStream(file).pipe(res);
     }
 
+    // MRI/CT volume -> TotalSegmentator -> multilabel NIfTI. Forwards the
+    // multipart body untouched to a self-hosted TotalSegmentator HTTP service.
+    if (url.pathname === '/api/seg/organ' && req.method === 'POST') {
+      const body = await readBody(req);
+      const started = Date.now();
+      let upstream;
+      try {
+        upstream = await fetch(TOTALSEG_URL, {
+          method: 'POST',
+          headers: { 'content-type': req.headers['content-type'] ?? 'application/octet-stream' },
+          body,
+          signal: AbortSignal.timeout(20 * 60 * 1000),
+        });
+      } catch (error) {
+        return json(res, 502, {
+          error:
+            `TotalSegmentator is not reachable at ${TOTALSEG_URL} (${error.cause?.code ?? error.name}). ` +
+            'Start it (see docs/TOTALSEGMENTATOR.md) or set TOTALSEG_URL in .env.',
+        });
+      }
+      if (!upstream.ok) {
+        return json(res, upstream.status, {
+          error: `TotalSegmentator ${upstream.status}: ${(await upstream.text().catch(() => '')).slice(0, 400)}`,
+        });
+      }
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      console.log(`[seg] organ segmentation -> ${buf.length} bytes in ${Date.now() - started}ms`);
+      res.writeHead(200, {
+        'content-type': 'application/gzip',
+        'content-length': buf.length,
+        'access-control-allow-origin': '*',
+      });
+      return res.end(buf);
+    }
+
     if (url.pathname === '/api/vista/segment' && req.method === 'POST') {
       const body = JSON.parse((await readBody(req, 4 * 1024 * 1024)).toString('utf8') || '{}');
       if (!body.imageUrl) return json(res, 400, { error: 'imageUrl is required.' });
@@ -238,4 +276,5 @@ server.listen(PORT, () => {
   console.log(`[vista] ${KEYS.length} API key(s) loaded`);
   console.log(`[vista] endpoints tried in order: ${CANDIDATES.join(', ')}`);
   console.log(`[vista] uploads served to the model at ${PUBLIC_BASE}/files/...`);
+  console.log(`[seg]   TotalSegmentator expected at ${TOTALSEG_URL}`);
 });

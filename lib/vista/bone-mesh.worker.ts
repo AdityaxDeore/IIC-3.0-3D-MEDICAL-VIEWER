@@ -28,6 +28,8 @@ export interface BoneMeshRequest {
   /** Real value = stored * sclSlope + sclInter. */
   sclSlope?: number;
   sclInter?: number;
+  /** Isolated-structure mode: paint every vertex this RGB (0..1) instead of the bone palette. */
+  flatColor?: [number, number, number];
 }
 
 export interface BoneMeshResponse {
@@ -67,6 +69,7 @@ self.onmessage = (event: MessageEvent<BoneMeshRequest>) => {
     const wanted = event.data.labels ?? BONE_IDS;
     const threshold = event.data.threshold;
     const ctMode = typeof threshold === 'number';
+    const flat = event.data.flatColor ?? null;
     const slope = event.data.sclSlope ?? 1;
     const inter = event.data.sclInter ?? 0;
 
@@ -104,7 +107,9 @@ self.onmessage = (event: MessageEvent<BoneMeshRequest>) => {
     if (maxX < 0) {
       throw new Error(ctMode
         ? `No voxels at or above ${threshold} HU. Lower the threshold, or this may not be a CT scan.`
-        : 'The segmentation contains no skeletal labels.');
+        : flat
+          ? 'The segmentation does not contain the requested structure.'
+          : 'The segmentation contains no skeletal labels.');
     }
 
     // Pad by one voxel so the surface closes cleanly at the crop edge.
@@ -180,7 +185,7 @@ self.onmessage = (event: MessageEvent<BoneMeshRequest>) => {
         Math.min(gz - 1, Math.max(0, Math.round(gzf))) * gx * gy +
         Math.min(gy - 1, Math.max(0, Math.round(gyf))) * gx +
         Math.min(gx - 1, Math.max(0, Math.round(gxf)));
-      const [r, gg, b] = boneTint(labelAt[g] || 0);
+      const [r, gg, b] = flat ?? boneTint(labelAt[g] || 0);
       colors[i] = r; colors[i + 1] = gg; colors[i + 2] = b;
     }
 

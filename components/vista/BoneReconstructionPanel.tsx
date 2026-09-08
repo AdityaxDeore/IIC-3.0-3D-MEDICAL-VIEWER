@@ -5,6 +5,8 @@ import type { Atlas } from '@/app/anatomy';
 import { getSceneBridge } from '@/lib/vista/scene-bridge';
 import { REGIONS, getRegionBox, guessRegion, type RegionId } from '@/lib/vista/atlas-regions';
 import { useBoneReconstruction, type BoneResult } from '@/lib/vista/useBoneReconstruction';
+import { useOrganReconstruction } from '@/lib/vista/useOrganReconstruction';
+import { structureOptions, type SegTask } from '@/lib/vista/totalseg-labels';
 
 const SAMPLE = 'https://assets.ngc.nvidia.com/products/api-catalog/vista3d/example-1.nii.gz';
 const FILL = 0.92; // leave a little headroom inside the atlas region box
@@ -22,6 +24,9 @@ export default function BoneReconstructionPanel({ atlas }: { atlas?: Atlas | nul
   const [opacity, setOpacity] = useState(1);
   const [scale, setScale] = useState(1);
   const [region, setRegion] = useState<RegionId | 'auto'>('auto');
+  const [uiMode, setUiMode] = useState<'bones' | 'organ'>('bones');
+  const [task, setTask] = useState<SegTask>('total');
+  const [structureId, setStructureId] = useState(5); // liver
   const [mounted, setMounted] = useState(false);
   const groupRef = useRef<T.Group | null>(null);
   const materialRef = useRef<T.MeshStandardMaterial | null>(null);
@@ -32,8 +37,13 @@ export default function BoneReconstructionPanel({ atlas }: { atlas?: Atlas | nul
   const fileRef = useRef<HTMLInputElement>(null);
   const maskRef = useRef<HTMLInputElement>(null);
   const ctRef = useRef<HTMLInputElement>(null);
+  const organRef = useRef<HTMLInputElement>(null);
+  const organMaskRef = useRef<HTMLInputElement>(null);
 
   const { state, reset, segmentFromUrl, segmentFromFile, meshFromFile, ctFromFile } = useBoneReconstruction();
+  const organ = useOrganReconstruction();
+  const busy = state.busy || organ.state.busy;
+  const status = uiMode === 'organ' ? organ.state : state;
 
   const scaleRef = useRef(1);
   scaleRef.current = scale;
@@ -92,7 +102,14 @@ export default function BoneReconstructionPanel({ atlas }: { atlas?: Atlas | nul
     applyTransform(scaleRef.current);
   }, [atlas, applyTransform]);
 
-  const mount = useCallback((result: BoneResult) => {
+  /** Isolated view: a single structure, ~0.4 m tall, floating beside the skeleton. */
+  const fitIsolated = useCallback((result: BoneResult) => {
+    const [sx, sy, sz] = result.size.map((v) => Math.max(v, 1e-6)) as [number, number, number];
+    fitRef.current = { k: 0.42 / Math.max(sx, sy, sz), halfY: sy / 2, center: [0.6, 0.95, 0] };
+    applyTransform(scaleRef.current);
+  }, [applyTransform]);
+
+  const mount = useCallback((result: BoneResult, isolated = false) => {
     const bridge = getSceneBridge();
     if (!bridge) return;
     clear();
@@ -114,13 +131,14 @@ export default function BoneReconstructionPanel({ atlas }: { atlas?: Atlas | nul
 
     groupRef.current = group;
     materialRef.current = material;
-    resultRef.current = result;
+    resultRef.current = isolated ? null : result; // region re-fit only applies to the bones path
     setMounted(true);
     setOpacity(1);
     setScale(1);
-    fitToRegion(result, region);
+    if (isolated) fitIsolated(result);
+    else fitToRegion(result, region);
     bridge.requestRender();
-  }, [clear, region, fitToRegion]);
+  }, [clear, region, fitToRegion, fitIsolated]);
 
   // Live opacity without rebuilding the mesh.
   useEffect(() => {
@@ -144,6 +162,11 @@ export default function BoneReconstructionPanel({ atlas }: { atlas?: Atlas | nul
   const run = async (fn: () => Promise<BoneResult | null>) => {
     const result = await fn();
     if (result) mount(result);
+  };
+
+  const runOrgan = async (fn: () => Promise<(BoneResult & { structure: string }) | null>) => {
+    const result = await fn();
+    if (result) mount(result, true); // isolated view
   };
 
   const panel: React.CSSProperties = {
@@ -198,6 +221,69 @@ export default function BoneReconstructionPanel({ atlas }: { atlas?: Atlas | nul
       </div>
 
       <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {(['bones', 'organ'] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setUiMode(m)}
+              style={{
+                ...button, flex: 1,
+                ...(uiMode === m ? { background: '#0f172a', color: '#fff', borderColor: '#0f172a' } : {}),
+              }}
+            >
+              {m === 'bones' ? 'Bones (offline)' : 'Organ / structure'}
+            </button>
+          ))}
+        </div>
+
+        {uiMode === 'organ' && (
+          <>
+            <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.45 }}>
+              Upload an MRI/CT volume; TotalSegmentator isolates one structure and
+              it's rebuilt in 3D beside the skeleton so a fracture or lesion is easy to read.
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <select
+                value={task}
+                onChange={(e) => { setTask(e.target.value as SegTask); setStructureId(5); }}
+                style={{ padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: 7, fontSize: 12, background: '#fff' }}
+              >
+                <option value="total">CT</option>
+                <option value="total_mr">MRI</option>
+              </select>
+              <select
+                value={structureId}
+                onChange={(e) => setStructureId(Number(e.target.value))}
+                style={{ flex: 1, padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: 7, fontSize: 12, background: '#fff' }}
+              >
+                {structureOptions(task).map((o) => (
+                  <option key={o.id} value={o.id}>{o.category === 'bone' ? '🦴 ' : o.category === 'vessel' ? '🩸 ' : ''}{o.pretty}</option>
+                ))}
+              </select>
+            </div>
+            <button style={primary} disabled={busy} onClick={() => organRef.current?.click()}>
+              Segment & reconstruct structure
+            </button>
+            <button style={button} disabled={busy} onClick={() => organMaskRef.current?.click()}>
+              Load segmentation mask (no server)
+            </button>
+            <input
+              ref={organRef} type="file" accept=".nii,.gz,.nrrd" hidden
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) runOrgan(() => organ.reconstruct(f, { task, structureId, quality })); e.target.value = ''; }}
+            />
+            <input
+              ref={organMaskRef} type="file" accept=".nii,.gz,.nrrd" hidden
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) runOrgan(() => organ.fromMask(f, { task, structureId, quality })); e.target.value = ''; }}
+            />
+            <div style={{ fontSize: 10.5, color: '#94a3b8', lineHeight: 1.4 }}>
+              Needs a TotalSegmentator service (see docs/TOTALSEGMENTATOR.md). CPU segmentation
+              takes ~1 min. Use "Load mask" to skip the server with a saved output.
+            </div>
+          </>
+        )}
+
+        {uiMode === 'bones' && (
+        <>
         {/* Offline path — primary, because NVIDIA retired the hosted endpoint. */}
         <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.45 }}>
           Reconstruct bones straight from a CT volume (<code>.nii/.nii.gz/.nrrd</code>).
@@ -278,50 +364,52 @@ export default function BoneReconstructionPanel({ atlas }: { atlas?: Atlas | nul
         />
           </div>
         </details>
+        </>
+        )}
 
         <label style={{ fontSize: 11, color: '#475569', display: 'flex', justifyContent: 'space-between' }}>
           <span>Mesh detail</span><span style={{ fontWeight: 700 }}>{quality}</span>
         </label>
         <input
           type="range" min={96} max={384} step={32} value={quality}
-          disabled={state.busy} onChange={(e) => setQuality(Number(e.target.value))}
+          disabled={busy} onChange={(e) => setQuality(Number(e.target.value))}
         />
 
-        {state.busy && (
+        {status.busy && (
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#475569', fontSize: 12, marginBottom: 6 }}>
-              <Activity size={14} /> {state.stage}…
+              <Activity size={14} /> {status.stage}…
             </div>
             <div style={{ height: 5, background: '#e2e8f0', borderRadius: 3, overflow: 'hidden' }}>
-              <div style={{ width: `${state.percent}%`, height: '100%', background: '#2563eb', transition: 'width .25s' }} />
+              <div style={{ width: `${status.percent}%`, height: '100%', background: '#2563eb', transition: 'width .25s' }} />
             </div>
           </div>
         )}
 
-        {state.error && (
+        {status.error && (
           <div style={{
             display: 'flex', gap: 8, alignItems: 'flex-start', background: '#fef2f2',
             border: '1px solid #fecaca', color: '#991b1b', borderRadius: 8, padding: 9, fontSize: 11.5, lineHeight: 1.45,
           }}>
             <X size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-            <span>{state.error}</span>
+            <span>{status.error}</span>
           </div>
         )}
 
-        {state.result && (
+        {status.result && (
           <>
             <div style={{ height: 1, background: '#e2e8f0' }} />
             <div style={{ fontSize: 11.5, color: '#334155' }}>
-              <strong>{state.result.triangles.toLocaleString()}</strong> triangles ·{' '}
-              <strong>{state.result.ms} ms</strong> ·{' '}
-              {state.result.size.map((n) => n.toFixed(2)).join(' × ')} m
+              <strong>{status.result.triangles.toLocaleString()}</strong> triangles ·{' '}
+              <strong>{status.result.ms} ms</strong> ·{' '}
+              {status.result.size.map((n) => n.toFixed(2)).join(' × ')} m
             </div>
             <details>
               <summary style={{ cursor: 'pointer', fontSize: 11.5, color: '#2563eb', fontWeight: 600 }}>
-                {state.result.found.length} structures detected
+                {status.result.found.length} structure{status.result.found.length === 1 ? '' : 's'}
               </summary>
               <ul style={{ margin: '6px 0 0', paddingLeft: 16, maxHeight: 132, overflowY: 'auto', fontSize: 11, color: '#475569' }}>
-                {state.result.found.map((line) => <li key={line}>{line}</li>)}
+                {status.result.found.map((line) => <li key={line}>{line}</li>)}
               </ul>
             </details>
           </>
@@ -334,11 +422,11 @@ export default function BoneReconstructionPanel({ atlas }: { atlas?: Atlas | nul
             </label>
             <input type="range" min={0.15} max={1} step={0.05} value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} />
             <label style={{ fontSize: 11, color: '#475569', display: 'flex', justifyContent: 'space-between' }}>
-              <span>Fine scale (× region fit)</span><span style={{ fontWeight: 700 }}>{scale.toFixed(2)}×</span>
+              <span>Fine scale ×</span><span style={{ fontWeight: 700 }}>{scale.toFixed(2)}×</span>
             </label>
             <input type="range" min={0.4} max={2.5} step={0.05} value={scale} onChange={(e) => setScale(Number(e.target.value))} />
             <button style={{ ...button, color: '#b91c1c', borderColor: '#fecaca', display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}
-              onClick={() => { clear(); reset(); }}>
+              onClick={() => { clear(); reset(); organ.reset(); }}>
               <Trash2 size={14} /> Remove from scene
             </button>
           </>
