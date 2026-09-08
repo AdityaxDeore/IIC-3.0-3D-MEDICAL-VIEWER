@@ -11,12 +11,27 @@ import {Combobox,ComboboxInput,ComboboxContent,ComboboxList,ComboboxItem,Combobo
 import AnatomyScene from './scene';
 import {DEFAULT_VISIBLE,SYSTEMS,EXPLANATIONS,explanation,type Atlas,type Concept,type SceneState,type SystemId,type View} from './anatomy';
 import {initVoiceCommands, startVoice, stopVoice} from '@/lib/voice-commands';
+import {classifyMRI, ClassificationResult} from '../lib/ai';
+
 const initial:SceneState={explode:0,visible:DEFAULT_VISIBLE,selected:[],isolate:false,view:'three-quarter',rotate:false,reset:0};
 export default function Home(){
  const detailTitle=useRef<HTMLHeadingElement>(null);
  const [atlas,setAtlas]=useState<Atlas|null>(null),[state,setState]=useState(initial),[progress,setProgress]=useState(0),[error,setError]=useState(''),[panel,setPanel]=useState<'layers'|'search'|null>(null),[details,setDetails]=useState(false),[about,setAbout]=useState(false),[query,setQuery]=useState(''),[chosen,setChosen]=useState<Concept|null>(null),[listening,setListening]=useState(false);
+ const [classification, setClassification] = useState<ClassificationResult | null>(null);
+ const [classifying, setClassifying] = useState(false);
  useEffect(()=>{const abort=new AbortController();setProgress(0);setError('');setAtlas(null);setChosen(null);setDetails(false);setState({...initial,visible:DEFAULT_VISIBLE});fetch('/models/atlas.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw new Error('The anatomy catalogue could not be loaded.');return r.json();}).then(data=>setAtlas(data as Atlas)).catch(e=>{if(e.name!=='AbortError')setError(e.message);});return()=>abort.abort();},[]);
- useEffect(()=>{const key=(e:KeyboardEvent)=>{if(e.key==='/'&&!(e.target instanceof HTMLInputElement)&&!(e.target instanceof HTMLTextAreaElement)){e.preventDefault();setPanel('search');setDetails(false);}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[]);
+ useEffect(()=>{
+    const key=(e:KeyboardEvent)=>{
+      if(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if(e.key==='/'){e.preventDefault();setPanel('search');setDetails(false);}
+      else if(e.key==='ArrowUp'){e.preventDefault();setState(s=>({...s, view:'front'}));}
+      else if(e.key==='ArrowDown'){e.preventDefault();setState(s=>({...s, view:'back'}));}
+      else if(e.key==='ArrowLeft'){e.preventDefault();setState(s=>({...s, view:'side'}));}
+      else if(e.key==='ArrowRight'){e.preventDefault();setState(s=>({...s, view:'three-quarter'}));}
+    };
+    window.addEventListener('keydown',key);
+    return()=>window.removeEventListener('keydown',key);
+  },[]);
  const parts=useMemo(()=>new Map(atlas?.parts.map(p=>[p.id,p])),[atlas]);
  const counts=useMemo(()=>Object.fromEntries(SYSTEMS.map(s=>[s.id,atlas?.parts.filter(p=>p.system===s.id).length??0])),[atlas]);
  const activeSystems=SYSTEMS.filter(s=>counts[s.id]>0);
@@ -45,9 +60,70 @@ export default function Home(){
  };
  useEffect(()=>{if(atlas) initVoiceCommands((cmd)=>onVoiceRef.current(cmd));},[atlas]);
  const toggleVoice = () => { if(listening) { stopVoice(); setListening(false); } else { startVoice(); setListening(true); } };
- return <main className="studio">
-  {atlas&&<AnatomyScene atlas={atlas} state={{...state,inspectorOpen:details&&selectedParts.length>0}} onSelect={choosePart} onProgress={n=>{setProgress(n);if(n===100)setError('');}} onError={setError}/>}
-  <div className="vignette"/>
+
+ const onMriUpload = async (file: File) => {
+    setClassifying(true);
+    try {
+      const result = await classifyMRI(file);
+      setClassification(result);
+    } catch (e) {
+      console.error("Classification failed:", e);
+    } finally {
+      setClassifying(false);
+    }
+  };
+
+  if(!atlas) return <main className="studio"><div className="loading glass" role="status"><Activity size={18}/><div><strong>Preparing the anatomy</strong><span>{progress}% · Loading {atlas?.parts.length.toLocaleString()??'2,234'} pieces</span><div className="loading-track"><i style={{width:`${progress}%`}}/></div></div></div></main>;
+  return(
+   <main className="studio">
+    <div className="absolute inset-0 z-0">
+      <AnatomyScene atlas={atlas} state={{...state,inspectorOpen:details&&selectedParts.length>0}} onSelect={choosePart} onProgress={n=>{setProgress(n);if(n===100)setError('');}} onError={setError} onMriUpload={onMriUpload} spawnToolRef={spawnToolRef} />
+     </div>
+     
+     {/* Surgical Plan UI Overlay */}
+     {(classifying || classification) && (
+       <div className="absolute right-6 top-24 w-80 bg-white/95 backdrop-blur shadow-lg rounded-xl overflow-hidden border border-slate-200 z-10 transition-all">
+         <div className="bg-slate-900 text-white p-3 font-semibold flex items-center justify-between">
+           <div className="flex items-center gap-2">
+             <Activity size={18} />
+             <span>Surgical Planner (VISTA)</span>
+           </div>
+           <button onClick={() => setClassification(null)} className="opacity-70 hover:opacity-100 transition"><X size={16}/></button>
+         </div>
+         <div className="p-4 flex flex-col gap-4 text-sm">
+           {classifying ? (
+             <div className="flex items-center gap-3 text-slate-500 animate-pulse">
+               <div className="w-5 h-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"/>
+               Classifying organ via NVIDIA VISTA...
+             </div>
+           ) : classification ? (
+             <>
+               <div>
+                 <div className="text-xs font-semibold text-slate-400 uppercase mb-1">Detected Anatomy</div>
+                 <div className="text-lg font-bold text-blue-600">{classification.organ}</div>
+               </div>
+               <div>
+                 <div className="text-xs font-semibold text-slate-400 uppercase mb-1">Possible Pathologies</div>
+                 <ul className="list-disc pl-4 text-slate-700">
+                   {classification.pathologies.map((p, i) => <li key={i}>{p}</li>)}
+                 </ul>
+               </div>
+               <div>
+                 <div className="text-xs font-semibold text-slate-400 uppercase mb-2">Recommended Surgical Tools</div>
+                 <div className="flex flex-wrap gap-2">
+                   {classification.recommendedTools.map((tool, i) => (
+                     <button key={i} onClick={() => spawnToolRef.current && spawnToolRef.current(tool)} className="flex items-center gap-1 bg-slate-100 hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-slate-700 px-3 py-1.5 rounded-md transition cursor-pointer capitalize font-medium">
+                       + Add {tool}
+                     </button>
+                   ))}
+                 </div>
+               </div>
+             </>
+           ) : null}
+         </div>
+       </div>
+     )}
+
   <header className="identity"><div className="eyebrow"><span className="status-dot"/> INTERACTIVE ANATOMY</div><h1>Human Atlas<Badge variant="outline" className="edition">3D</Badge></h1><div className="identity-meta">{atlas?atlas.parts.length.toLocaleString():'2,234'} modeled pieces <span>·</span> BodyParts3D</div></header>
   <nav className="top-actions" aria-label="Explorer panels"><Button variant="ghost" className={panel==='search'?'active':''} onClick={()=>openPanel('search')} aria-label="Search anatomy"><Search size={18}/><span>Find a structure</span><kbd>/</kbd></Button><Button variant="ghost" className="icon-button" aria-label="About this atlas" onClick={()=>{setDetails(false);setPanel(null);setAbout(true);}}><Info size={18}/></Button><Button variant="ghost" className={`icon-button ${listening?'active':''}`} onClick={toggleVoice} aria-label="Voice commands">{listening?<MicOff size={18}/>:<Mic size={18}/>}</Button></nav>
   <section className={`layers-panel glass ${panel==='layers'?'mobile-open':''}`} aria-label="Anatomical layers">
@@ -65,5 +141,6 @@ export default function Home(){
   {error&&<div className="loading glass error" role="alert"><p>{error}</p><Button variant="ghost" onClick={()=>location.reload()}>Reload viewer</Button></div>}
   <Sheet open={details&&selectedParts.length>0} modal={false} disablePointerDismissal onOpenChange={setDetails}><SheetContent initialFocus={detailTitle} className={`detail-sheet glass ${state.isolate?'is-isolated':''}`} showCloseButton={true}><div className="detail-header"><div className="detail-accent" style={{background:system?.color}}/><div className="eyebrow">{system?.name??'ANATOMY'}</div><SheetTitle ref={detailTitle} tabIndex={-1} className="structure-title">{chosen?.name}</SheetTitle></div><div className="detail-scroll" key={`${chosen?.id}-${state.isolate}`}><SheetDescription className="structure-description">{chosen&&selected?explanation(chosen.name,selected.system):''}</SheetDescription>{chosen&&!EXPLANATIONS[chosen.name.toLowerCase()]&&<span className="context-note">System overview · structure identified from source anatomy</span>}<div className="structure-meta"><span>Atlas reference<strong>{chosen?.id}</strong></span><span>Selected pieces<strong>{state.selected.length.toLocaleString()}</strong></span></div>{selectedParts.length>1&&<div className="member-list"><h3>Included structures</h3>{selectedParts.slice(0,50).map(p=><Button variant="ghost" key={p.id} onClick={()=>choosePart(p.id)}><span>{p.name}</span><ChevronRight size={14}/></Button>)}{selectedParts.length>50&&<p>And {selectedParts.length-50} more modeled pieces.</p>}</div>}<a className="source-link" href="https://lifesciencedb.jp/bp3d/" target="_blank" rel="noreferrer">View anatomical source <ArrowUpRight size={14}/></a></div><div className="detail-actions"><Button className={`primary-action ${state.isolate?'active':''}`} onClick={()=>setState(s=>({...s,isolate:!s.isolate,explode:0}))}><Focus size={18}/>{state.isolate?'Show surrounding anatomy':'Isolate structure'}<ChevronRight size={16}/></Button><Button variant="ghost" className="secondary-action" onClick={()=>{setState(s=>({...s,selected:[],isolate:false}));setDetails(false);}}>Clear selection</Button></div></SheetContent></Sheet>
   <Sheet open={about} onOpenChange={setAbout}><SheetContent className="about-sheet glass"><div className="eyebrow">SOURCE & SCOPE</div><SheetTitle className="structure-title">A body, revealed.</SheetTitle><SheetDescription>Explore the adult male reference anatomy from BodyParts3D.</SheetDescription><div className="about-copy"><p><strong>Male · BodyParts3D</strong><br/>2,234 individual meshes and 3,432 named concepts from an adult male reference anatomy.</p><p>This reference does not contain every human structure or variation. Named concepts can contain multiple pieces; each source mesh is rendered once.</p><p>Colors and system groupings are designed for exploration. The geometry is simplified for the web, and short explanations provide general educational context. This is an anatomical reference, not a diagnostic or surgical tool.</p><h3>Source</h3><p>BodyParts3D, © The Database Center for Life Science licensed under CC Attribution 4.0 International.</p><a href="https://dbarchive.biosciencedbc.jp/en/bodyparts3d/lic.html" target="_blank" rel="noreferrer">Dataset license <ArrowUpRight size={14}/></a><a href="https://dbarchive.biosciencedbc.jp/en/bodyparts3d/download.html" target="_blank" rel="noreferrer">Original geometry & metadata <ArrowUpRight size={14}/></a><a href="https://academic.oup.com/nar/article/37/suppl_1/D782/1000752" target="_blank" rel="noreferrer">Read the source publication <ArrowUpRight size={14}/></a></div></SheetContent></Sheet>
- </main>;
+ </main>
+ );
 }

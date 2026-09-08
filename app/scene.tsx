@@ -12,8 +12,8 @@ import {SYSTEMS,type Atlas,type SceneState} from './anatomy';
 import { initializeHandTracking, startCamera, startTracking } from '../lib/hand-tracking';
 import { InteractionCommand } from '../lib/gestures';
 
-interface Props {atlas:Atlas;state:SceneState;onSelect:(id:string)=>void;onProgress:(n:number)=>void;onError:(s:string)=>void}
-export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:Props){
+interface Props {atlas:Atlas;state:SceneState;onSelect:(id:string)=>void;onProgress:(n:number)=>void;onError:(s:string)=>void;onMriUpload:(file:File)=>void;spawnToolRef:React.MutableRefObject<((tool:'screw'|'rod'|'clip')=>void)|null>}
+export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,onMriUpload,spawnToolRef}:Props){
  const host=useRef<HTMLDivElement>(null),latest=useRef(state),select=useRef(onSelect);
  const [mode, setMode] = useState<"standard" | "exoskeleton" | "mri" | "hidden">("standard");
  const [mriTarget, setMriTarget] = useState<"body" | "mri">("mri");
@@ -58,7 +58,37 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
     transformControls.attach(mesh);
     dirty = true;
   };
-  (window as any).mriTextureRef = mriTextureRef; // Quick global hack to access it in the React UI below without passing it down the closure
+  (window as any).mriTextureRef = mriTextureRef;
+  
+  if (spawnToolRef) {
+    spawnToolRef.current = (toolType: 'screw' | 'rod' | 'clip') => {
+      let geo: T.BufferGeometry;
+      let mat = new T.MeshStandardMaterial({ color: 0x8899a6, metalness: 0.9, roughness: 0.2 });
+      if (toolType === 'screw') {
+        const body = new T.CylinderGeometry(0.02, 0.01, 0.3, 16);
+        const head = new T.CylinderGeometry(0.04, 0.04, 0.05, 6);
+        head.translate(0, 0.15, 0);
+        geo = mergeGeometries([body, head]);
+      } else if (toolType === 'rod') {
+        geo = new T.CylinderGeometry(0.03, 0.03, 1.0, 16);
+      } else if (toolType === 'clip') {
+        const g1 = new T.BoxGeometry(0.02, 0.1, 0.02);
+        g1.translate(0.02, 0, 0);
+        g1.rotateZ(0.2);
+        const g2 = new T.BoxGeometry(0.02, 0.1, 0.02);
+        g2.translate(-0.02, 0, 0);
+        g2.rotateZ(-0.2);
+        geo = mergeGeometries([g1, g2]);
+      } else { return; }
+      
+      const mesh = new T.Mesh(geo, mat);
+      mesh.position.set(0, 0, -1.5);
+      camera.add(mesh);
+      transformControls.attach(mesh);
+      dirty = true;
+    };
+  }
+
   const pmrem=new T.PMREMGenerator(renderer),room=new RoomEnvironment(),env=pmrem.fromScene(room,.04);scene.environment=env.texture;room.dispose();pmrem.dispose();
   scene.add(new T.HemisphereLight(0xffffff,0xa7acb2,1.05));
   const key=new T.DirectionalLight(0xfffaf4,2.3);key.position.set(-2,4,3);scene.add(key);
@@ -280,7 +310,8 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
 
  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
   if (e.target.files && e.target.files[0] && onMriUploadRef.current) {
-   onMriUploadRef.current(e.target.files[0]);
+    onMriUploadRef.current(e.target.files[0]);
+    onMriUpload(e.target.files[0]);
   }
  };
 
