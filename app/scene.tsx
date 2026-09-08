@@ -218,6 +218,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   let isPanning = false;
   let lastZoom = 0;
   let lastX = 0, lastY = 0;
+  let dragAnchorX = 0, dragAnchorY = 0, handAnchorX = 0, handAnchorY = 0;
   const initTracking = async () => {
     const video = document.getElementById('hand-video') as HTMLVideoElement;
     const canvas = document.getElementById('hand-canvas') as HTMLCanvasElement;
@@ -244,8 +245,23 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
       else if (cmd.type === 'ROTATE' || cmd.type === 'PAN') { rawX = cmd.dx; rawY = cmd.dy; }
 
       if (rawX !== 0 || rawY !== 0) {
-        const x = (1 - rawX) * window.innerWidth;
-        const y = rawY * window.innerHeight;
+        let x = (1 - rawX) * window.innerWidth;
+        let y = rawY * window.innerHeight;
+        
+        const isDragging = cmd.type === 'ROTATE' || cmd.type === 'PAN';
+        const wasDragging = isRotating || isPanning;
+        
+        if (isDragging) {
+           if (!wasDragging) {
+             handAnchorX = x; handAnchorY = y;
+             dragAnchorX = lastX || x; dragAnchorY = lastY || y;
+           }
+           const dx = (x - handAnchorX) * 0.25; // Reduce sensitivity to 25%
+           const dy = (y - handAnchorY) * 0.25;
+           x = dragAnchorX + dx;
+           y = dragAnchorY + dy;
+        }
+
         // Exponential Moving Average for buttery smooth gestures
         if (lastX === 0 && lastY === 0) { lastX = x; lastY = y; }
         else { lastX = lastX * 0.65 + x * 0.35; lastY = lastY * 0.65 + y * 0.35; }
