@@ -73,9 +73,9 @@ export function detectGestures(landmarksList: NormalizedLandmark[][]): Interacti
     return { type: "CURSOR", x: indexTip.x, y: indexTip.y, active: true };
   }
 
-  // Cylindrical / Fist (all curled) for PAN (or other action if desired, but user didn't specify. I'll map to PAN for completeness)
+  // Cylindrical / Fist (all curled) for PAN
   if (!indexExt && !middleExt && !ringExt && !pinkyExt) {
-    return { type: "PAN", dx: wrist.x, dy: wrist.y };
+    return { type: "PAN", dx: indexPIP.x, dy: indexPIP.y };
   }
 
   return null;

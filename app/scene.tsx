@@ -206,55 +206,43 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
         return;
       }
 
-      if (cmd.type === 'CURSOR') {
-        const x = cmd.x * window.innerWidth;
-        const y = cmd.y * window.innerHeight;
-        cursor.style.display = 'block';
-        cursor.style.left = `${x - 6}px`;
-        cursor.style.top = `${y - 6}px`;
-        cursor.style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
-        cursor.style.transform = 'scale(1)';
-      } else if (cmd.type === 'SELECT') {
-        const x = cmd.x * window.innerWidth;
-        const y = cmd.y * window.innerHeight;
-        cursor.style.display = 'block';
-        cursor.style.left = `${x - 6}px`;
-        cursor.style.top = `${y - 6}px`;
-        cursor.style.backgroundColor = 'rgba(0, 150, 255, 0.9)';
-        cursor.style.transform = 'scale(1.3)';
+      let rawX = 0, rawY = 0;
+      if (cmd.type === 'CURSOR' || cmd.type === 'SELECT') { rawX = cmd.x; rawY = cmd.y; }
+      else if (cmd.type === 'ROTATE' || cmd.type === 'PAN') { rawX = cmd.dx; rawY = cmd.dy; }
 
-        const rect = renderer.domElement.getBoundingClientRect();
-        pointer.set((x-rect.left)/rect.width*2-1,-(y-rect.top)/rect.height*2+1);
-        raycaster.setFromCamera(pointer,camera);
-        let nearest=Infinity,found=-1;
-        const hasSolid=atlas.parts.some((p,i)=>p.system!=='integumentary'&&data[i*4+3]>.5);
-        pickers.forEach((mesh,i)=>{if(!mesh||data[i*4+3]<.5||(hasSolid&&atlas.parts[i].system==='integumentary'))return;worldBox.copy(bounds[i]).translate(mesh.position);if(!raycaster.ray.intersectBox(worldBox,hitPoint))return;const hits=raycaster.intersectObject(mesh,false);if(hits[0]&&hits[0].distance<nearest){nearest=hits[0].distance;found=i;}});
-        if(found<0&&amount>.45)found=findTarget(x-rect.left,y-rect.top,24);
-        if(found>=0){hover.hidden=true;select.current(atlas.parts[found].id);}
+      if (rawX !== 0 || rawY !== 0) {
+        const x = rawX * window.innerWidth;
+        const y = rawY * window.innerHeight;
+        // Exponential Moving Average for buttery smooth gestures
+        if (lastX === 0 && lastY === 0) { lastX = x; lastY = y; }
+        else { lastX = lastX * 0.65 + x * 0.35; lastY = lastY * 0.65 + y * 0.35; }
+      }
+
+      if (cmd.type === 'CURSOR' || cmd.type === 'SELECT') {
+        cursor.style.display = 'block';
+        cursor.style.left = `${lastX - 6}px`;
+        cursor.style.top = `${lastY - 6}px`;
+        cursor.style.backgroundColor = cmd.type === 'SELECT' ? 'rgba(0, 150, 255, 0.9)' : 'rgba(255, 0, 0, 0.7)';
+        cursor.style.transform = cmd.type === 'SELECT' ? 'scale(1.3)' : 'scale(1)';
+
+        renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { pointerId: 99, clientX: lastX, clientY: lastY, button: -1, buttons: 0 }));
+        
+        if (cmd.type === 'SELECT') {
+          renderer.domElement.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1 }));
+          renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 0 }));
+        }
       } else if (cmd.type === 'ROTATE') {
-        const x = cmd.dx * window.innerWidth;
-        const y = cmd.dy * window.innerHeight;
         if (!isRotating) {
           isRotating = true;
-          lastX = x;
-          lastY = y;
           renderer.domElement.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1 }));
         } else {
-          lastX = x;
-          lastY = y;
           renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1 }));
         }
       } else if (cmd.type === 'PAN') {
-        const x = cmd.dx * window.innerWidth;
-        const y = cmd.dy * window.innerHeight;
         if (!isPanning) {
           isPanning = true;
-          lastX = x;
-          lastY = y;
           renderer.domElement.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 2 }));
         } else {
-          lastX = x;
-          lastY = y;
           renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 2 }));
         }
       } else if (cmd.type === 'ZOOM') {
