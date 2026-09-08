@@ -124,16 +124,19 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   const mriTextureRef = { current: null as T.Texture | null };
   onMriUploadRef.current = (file: File | string) => {
     const url = typeof file === 'string' ? file : URL.createObjectURL(file);
+    if (mriEditorRef.current) {
+      scene.remove(mriEditorRef.current.mesh);
+      mriEditorRef.current.dispose();
+    }
     const texture = new T.TextureLoader().load(url, () => { dirty = true; });
     mriTextureRef.current = texture;
     const geo = new T.PlaneGeometry(1.5, 1.5);
-    const mat = new T.MeshBasicMaterial({ map: texture, side: T.DoubleSide, transparent: true, opacity: 0.85, depthWrite: true });
+    const mat = new T.MeshBasicMaterial({ map: texture, side: T.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false });
     const mesh = new T.Mesh(geo, mat);
     mesh.position.set(0.6, 1.0, 0.4); // Placed in the physical scene next to the body
     scene.add(mesh);
     const overlayElement = document.getElementById('mri-editor-overlay');
     if (overlayElement) {
-      if (mriEditorRef.current) mriEditorRef.current.dispose();
       mriEditorRef.current = new MriEditor(mesh, camera, renderer.domElement, overlayElement);
     }
     dirty = true;
@@ -287,10 +290,8 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
      }else if(lastIsolate){camera.clearViewOffset();fit(s.view,amount);}
     lastIsolate=isolateKey;
    }
-   // If isolated, always allow trackball so they can inspect the bone freely.
-   // Otherwise, only allow controls if we are not editing the MRI image.
-   const isMriEditing = modeRef.current === 'mri' && mriTargetRef.current === 'mri';
-   controls.enabled = (!s.isolate) && !isMriEditing;
+   // Camera is always allowed; interactions on the MRI image are isolated by stopPropagation in MriEditor.
+   controls.enabled = (!s.isolate);
    trackball.enabled = (s.isolate);
    controls.enableRotate=amount<.8;controls.mouseButtons.LEFT=amount<.8?T.MOUSE.ROTATE:T.MOUSE.PAN;controls.touches.ONE=amount<.8?T.TOUCH.ROTATE:T.TOUCH.PAN;ground.visible=platform.visible=ring.visible=innerRing.visible=amount<.5&&!s.isolate;markers.visible=amount>.75;controls.autoRotate=s.rotate&&!s.isolate&&amount<.4;controls.autoRotateSpeed=.65;
    if(controls.enabled){controls.update();if(controls.autoRotate)dirty=true;}

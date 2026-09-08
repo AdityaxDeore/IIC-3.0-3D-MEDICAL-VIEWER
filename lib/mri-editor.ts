@@ -93,7 +93,7 @@ export class MriEditor {
              }
           }
        }
-    });
+    }, { capture: true });
   }
   
   private getPointerWorld(e: PointerEvent): T.Vector3 | null {
