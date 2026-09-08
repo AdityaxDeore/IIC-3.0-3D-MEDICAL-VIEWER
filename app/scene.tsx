@@ -1,6 +1,7 @@
-import {useEffect,useRef} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import * as T from 'three';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js';
+import {TransformControls} from 'three/examples/jsm/controls/TransformControls.js';
 import {RoomEnvironment} from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {mergeGeometries} from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {createExplosionLayout} from './explosion-layout';
@@ -13,6 +14,11 @@ import { InteractionCommand } from '../lib/gestures';
 interface Props {atlas:Atlas;state:SceneState;onSelect:(id:string)=>void;onProgress:(n:number)=>void;onError:(s:string)=>void}
 export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:Props){
  const host=useRef<HTMLDivElement>(null),latest=useRef(state),select=useRef(onSelect);
+ const [mode, setMode] = useState<"standard" | "exoskeleton" | "mri" | "hidden">("standard");
+ const [mriTarget, setMriTarget] = useState<"body" | "mri">("mri");
+ const onMriUploadRef = useRef<((f: File) => void) | null>(null);
+ const mriTargetRef = useRef(mriTarget);
+ mriTargetRef.current = mriTarget;
  latest.current=state;select.current=onSelect;
  useEffect(()=>{
   const el=host.current!;let disposed=false,frame=0,dirty=true,ready=false,lastView='',lastReset=-1,lastIsolate='',layoutKey='',amount=0;
@@ -23,7 +29,22 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
   renderer.setPixelRatio(Math.min(devicePixelRatio,innerWidth<768?1.5:2));renderer.setClearColor('#f2f3f3');renderer.outputColorSpace=T.SRGBColorSpace;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.12;el.appendChild(renderer.domElement);
   renderer.domElement.setAttribute('aria-label','Interactive human anatomy. Drag to orbit, pinch or scroll to zoom, and tap a structure to inspect it.');
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(34,1,.005,100),controls=new OrbitControls(camera,renderer.domElement);
-  camera.position.set(1.4,1.05,3.6);controls.target.set(0,.85,0);controls.enableDamping=true;controls.dampingFactor=.085;controls.minDistance=.07;controls.maxDistance=40;controls.maxPolarAngle=Math.PI*.96;controls.addEventListener('change',()=>{dirty=true;});
+  camera.position.set(1.4,1.05,3.6);controls.target.set(0,.85,0);controls.enableDamping=true;controls.dampingFactor=.085;controls.minDistance=.07;controls.maxDistance=40;controls.minPolarAngle=0;controls.maxPolarAngle=Math.PI;controls.addEventListener('change',()=>{dirty=true;});
+  const transformControls = new TransformControls(camera, renderer.domElement);
+  transformControls.addEventListener('dragging-changed', (event) => { controls.enabled = !event.value; });
+  transformControls.addEventListener('change', () => { dirty = true; });
+  scene.add(transformControls);
+  onMriUploadRef.current = (file: File) => {
+    const url = URL.createObjectURL(file);
+    const texture = new T.TextureLoader().load(url, () => { dirty = true; });
+    const geo = new T.PlaneGeometry(1.5, 1.5);
+    const mat = new T.MeshBasicMaterial({ map: texture, side: T.DoubleSide, transparent: true, opacity: 0.7, depthWrite: false });
+    const mesh = new T.Mesh(geo, mat);
+    mesh.position.set(0, 0.85, 0);
+    scene.add(mesh);
+    transformControls.attach(mesh);
+    dirty = true;
+  };
   const pmrem=new T.PMREMGenerator(renderer),room=new RoomEnvironment(),env=pmrem.fromScene(room,.04);scene.environment=env.texture;room.dispose();pmrem.dispose();
   scene.add(new T.HemisphereLight(0xffffff,0xa7acb2,1.05));
   const key=new T.DirectionalLight(0xfffaf4,2.3);key.position.set(-2,4,3);scene.add(key);
@@ -99,6 +120,14 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
   const clock=new T.Clock();let lastExtent=-1;
   const animate=()=>{
    if(disposed)return;frame=requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.05),s=latest.current;
+   if (transformControls) {
+     const isMriActive = mriTargetRef.current === 'mri';
+     if (transformControls.enabled !== isMriActive && transformControls.object) {
+       transformControls.enabled = isMriActive;
+       transformControls.visible = isMriActive;
+       dirty = true;
+     }
+   }
    const changed=lastState?.visible!==s.visible||lastState?.selected!==s.selected||lastState?.isolate!==s.isolate;
    const moving=Math.abs(amount-s.explode)>.0001;
    if(moving){amount=T.MathUtils.damp(amount,s.explode,8,dt);dirty=true;}
@@ -131,12 +160,14 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
   const contextLost=(e:Event)=>{e.preventDefault();onError('The 3D session was paused by your device. Reload to continue.');};renderer.domElement.addEventListener('webglcontextlost',contextLost);
 
   let isRotating = false;
-  let lastZoom = 0;
+  let isPanning = false;
   let lastX = 0, lastY = 0;
+  let lastMidX = -1, lastMidY = -1;
   const initTracking = async () => {
     const video = document.getElementById('hand-video') as HTMLVideoElement;
-    if (!video) return;
-    await initializeHandTracking(video, (cmd) => {
+    const canvas = document.getElementById('hand-canvas') as HTMLCanvasElement;
+    if (!video || !canvas) return;
+    await initializeHandTracking(video, canvas, (cmd) => {
       const cursor = document.getElementById('hand-cursor');
       if (!cursor) return;
       if (!cmd) {
@@ -145,7 +176,11 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
           isRotating = false;
           renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 0 }));
         }
-        lastZoom = 0;
+        if (isPanning) {
+          isPanning = false;
+          renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 0 }));
+        }
+        lastMidX = -1;
         return;
       }
 
@@ -187,20 +222,52 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
           lastY = y;
           renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1 }));
         }
-      } else if (cmd.type === 'ZOOM') {
-        if (lastZoom > 0) {
-          const delta = cmd.amount - lastZoom;
-          renderer.domElement.dispatchEvent(new WheelEvent('wheel', { deltaY: -delta * 1000 }));
+      } else if (cmd.type === 'PAN') {
+        const x = cmd.dx * window.innerWidth;
+        const y = cmd.dy * window.innerHeight;
+        if (!isPanning) {
+          isPanning = true;
+          lastX = x;
+          lastY = y;
+          renderer.domElement.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 2 }));
+        } else {
+          lastX = x;
+          lastY = y;
+          renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 2 }));
         }
-        lastZoom = cmd.amount;
+      } else if (cmd.type === 'TWO_HAND_PINCH') {
+        const midX = (cmd.x1 + cmd.x2) / 2;
+        const midY = (cmd.y1 + cmd.y2) / 2;
+        if (lastMidX !== -1) {
+          const dx = midX - lastMidX;
+          const dy = midY - lastMidY;
+          const angle = Math.atan2(cmd.y2 - cmd.y1, cmd.x2 - cmd.x1);
+          const isVertical = Math.abs(Math.sin(angle)) > 0.707;
+          
+          if (mriTargetRef.current === 'mri' && transformControls.object) {
+            if (isVertical) {
+               transformControls.object.position.z += dy * 5; 
+            } else {
+               transformControls.object.position.x -= dx * 5;
+               transformControls.object.position.y -= dy * 5;
+            }
+            dirty = true;
+          }
+        }
+        lastMidX = midX;
+        lastMidY = midY;
       }
 
       if (cmd.type !== 'ROTATE' && isRotating) {
         isRotating = false;
         renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 0 }));
       }
-      if (cmd.type !== 'ZOOM') {
-        lastZoom = 0;
+      if (cmd.type !== 'PAN' && isPanning) {
+        isPanning = false;
+        renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 0 }));
+      }
+      if (cmd.type !== 'TWO_HAND_PINCH') {
+        lastMidX = -1;
       }
     });
     await startCamera();
@@ -208,12 +275,41 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
   };
   initTracking();
 
-  return()=>{disposed=true;abort.abort();cancelAnimationFrame(frame);observer.disconnect();controls.dispose();geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());scene.traverse(o=>{if(o instanceof T.Mesh&&!geometries.includes(o.geometry)){o.geometry.dispose();const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>m.dispose());}});env.dispose();partTexture.dispose();selectionTexture.dispose();markerGeometry.dispose();markerMaterial.dispose();hover.remove();renderer.dispose();renderer.domElement.remove();};
+  return()=>{disposed=true;abort.abort();cancelAnimationFrame(frame);observer.disconnect();controls.dispose();transformControls.dispose();geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());scene.traverse(o=>{if(o instanceof T.Mesh&&!geometries.includes(o.geometry)){o.geometry.dispose();const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>m.dispose());}});env.dispose();partTexture.dispose();selectionTexture.dispose();markerGeometry.dispose();markerMaterial.dispose();hover.remove();renderer.dispose();renderer.domElement.remove();};
  },[atlas]);
+
+ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  if (e.target.files && e.target.files[0] && onMriUploadRef.current) {
+   onMriUploadRef.current(e.target.files[0]);
+  }
+ };
+
  return (
   <>
    <div className="scene" ref={host}/>
-   <video id="hand-video" style={{position: 'absolute', bottom: '10px', right: '10px', width: '200px', borderRadius: '8px', zIndex: 1000, transform: 'scaleX(-1)'}} playsInline muted></video>
+   
+   <div style={{ position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', zIndex: 1002, display: 'flex', gap: '8px', background: 'rgba(255,255,255,0.8)', padding: '6px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
+    <button onClick={() => setMode('standard')} style={{background: mode==='standard'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>Standard</button>
+    <button onClick={() => setMode('mri')} style={{background: mode==='mri'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>MRI Mode</button>
+   </div>
+
+   {mode === 'mri' && (
+    <div style={{ position: 'absolute', top: '60px', left: '50%', transform: 'translateX(-50%)', zIndex: 1002, background: 'rgba(255,255,255,0.9)', padding: '10px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
+      <div>
+        <label style={{ fontSize: '14px', fontWeight: 500, marginRight: '10px' }}>Upload MRI Image:</label>
+        <input type="file" accept="image/*" onChange={handleFileChange} />
+      </div>
+      <div style={{ display: 'flex', gap: '8px', marginTop: '5px' }}>
+        <button onClick={() => setMriTarget('body')} id="btn-control-body" style={{background: '#e2e8f0', padding: '4px 10px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', border: mriTarget === 'body' ? '2px solid #3b82f6' : '2px solid transparent'}}>Control Body</button>
+        <button onClick={() => setMriTarget('mri')} id="btn-control-mri" style={{background: '#e2e8f0', padding: '4px 10px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', border: mriTarget === 'mri' ? '2px solid #3b82f6' : '2px solid transparent'}}>Control MRI</button>
+      </div>
+    </div>
+   )}
+
+   <div style={{ display: 'block' }}>
+     <video id="hand-video" style={{position: 'absolute', bottom: '10px', right: '10px', width: '200px', borderRadius: '8px', zIndex: 1000, transform: 'scaleX(-1)'}} playsInline muted></video>
+     <canvas id="hand-canvas" style={{position: 'absolute', bottom: '10px', right: '10px', width: '200px', borderRadius: '8px', zIndex: 1000, transform: 'scaleX(-1)', pointerEvents: 'none', display: 'block'}}></canvas>
+   </div>
    <div id="hand-cursor" style={{position: 'absolute', width: '12px', height: '12px', borderRadius: '50%', backgroundColor: 'rgba(255, 0, 0, 0.7)', border: '2px solid white', boxShadow: '0 0 4px rgba(0,0,0,0.5)', zIndex: 1001, pointerEvents: 'none', display: 'none', transition: 'background-color 0.15s ease, transform 0.15s ease'}} />
   </>
  );
