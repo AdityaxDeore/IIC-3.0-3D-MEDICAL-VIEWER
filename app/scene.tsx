@@ -153,16 +153,18 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
         const x = cmd.x * window.innerWidth;
         const y = cmd.y * window.innerHeight;
         cursor.style.display = 'block';
-        cursor.style.left = `${x - 10}px`;
-        cursor.style.top = `${y - 10}px`;
-        cursor.style.backgroundColor = 'red';
+        cursor.style.left = `${x - 6}px`;
+        cursor.style.top = `${y - 6}px`;
+        cursor.style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
+        cursor.style.transform = 'scale(1)';
       } else if (cmd.type === 'SELECT') {
         const x = cmd.x * window.innerWidth;
         const y = cmd.y * window.innerHeight;
         cursor.style.display = 'block';
-        cursor.style.left = `${x - 10}px`;
-        cursor.style.top = `${y - 10}px`;
-        cursor.style.backgroundColor = 'blue';
+        cursor.style.left = `${x - 6}px`;
+        cursor.style.top = `${y - 6}px`;
+        cursor.style.backgroundColor = 'rgba(0, 150, 255, 0.9)';
+        cursor.style.transform = 'scale(1.3)';
 
         const rect = renderer.domElement.getBoundingClientRect();
         pointer.set((x-rect.left)/rect.width*2-1,-(y-rect.top)/rect.height*2+1);
@@ -212,7 +214,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
   <>
    <div className="scene" ref={host}/>
    <video id="hand-video" style={{position: 'absolute', bottom: '10px', right: '10px', width: '200px', borderRadius: '8px', zIndex: 1000, transform: 'scaleX(-1)'}} playsInline muted></video>
-   <div id="hand-cursor" style={{position: 'absolute', width: '20px', height: '20px', borderRadius: '50%', backgroundColor: 'red', zIndex: 1001, pointerEvents: 'none', display: 'none'}} />
+   <div id="hand-cursor" style={{position: 'absolute', width: '12px', height: '12px', borderRadius: '50%', backgroundColor: 'rgba(255, 0, 0, 0.7)', border: '2px solid white', boxShadow: '0 0 4px rgba(0,0,0,0.5)', zIndex: 1001, pointerEvents: 'none', display: 'none', transition: 'background-color 0.15s ease, transform 0.15s ease'}} />
   </>
  );
 }
