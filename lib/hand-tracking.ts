@@ -112,7 +112,7 @@ function drawExoskeleton(landmarksList: any[]) {
       canvasCtx.arc(point.x * canvasElement.width, point.y * canvasElement.height, 3, 0, 2 * Math.PI);
       canvasCtx.fill();
     }
-  // Removed the red/pink dashed line logic
+  }
 }
 
 async function predictWebcam() {
