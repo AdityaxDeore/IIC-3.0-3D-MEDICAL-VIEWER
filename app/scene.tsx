@@ -128,7 +128,18 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
       scene.remove(mriEditorRef.current.mesh);
       mriEditorRef.current.dispose();
     }
-    const texture = new T.TextureLoader().load(url, () => { dirty = true; });
+    const texture = new T.TextureLoader().load(url, (tex) => { 
+      if (mriEditorRef.current && mriEditorRef.current.mesh) {
+        const img = tex.image;
+        if (img && img.width && img.height) {
+          const aspect = img.width / img.height;
+          // Only adjust width to match the aspect ratio; height remains 1 relative to geometry
+          mriEditorRef.current.mesh.scale.set(aspect, 1, 1);
+          mriEditorRef.current.update();
+        }
+      }
+      dirty = true; 
+    });
     mriTextureRef.current = texture;
     const geo = new T.PlaneGeometry(1.5, 1.5);
     const mat = new T.MeshBasicMaterial({ map: texture, side: T.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false });
@@ -489,9 +500,8 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
               </label>
                <span style={{marginLeft: '10px'}}>Opacity:</span>
                <input type="range" min="0" max="1" step="0.05" defaultValue="0.85" onChange={e => {
-                  const tr = (window as any).mriTextureRef;
-                  if(tr && tr.current && tr.current.material) {
-                     tr.current.material.opacity = parseFloat(e.target.value);
+                  if(mriEditorRef.current && mriEditorRef.current.mesh) {
+                     (mriEditorRef.current.mesh.material as T.Material).opacity = parseFloat(e.target.value);
                      dirtyRef.current = true;
                   }
                }} style={{width: '60px'}} />
