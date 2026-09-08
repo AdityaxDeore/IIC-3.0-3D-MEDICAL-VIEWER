@@ -175,8 +175,35 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   // the viewer itself builds, animates or renders.
   (window as any).__anatomyScene = {
     scene, camera, requestRender: () => { if (!disposed) dirty = true; },
+    extractFemur: () => {
+      const femurIdx = atlas.parts.findIndex(p => p.id === 'FMA24475'); // Left Femur
+      if (femurIdx < 0 || !pickers[femurIdx]) return;
+      
+      // Hide original femur in the atlas shader
+      data[femurIdx * 4 + 3] = 0;
+      partTexture.needsUpdate = true;
+      
+      // Extract vertices into a standalone geometry
+      const femurGeo = pickers[femurIdx].geometry.clone();
+      // Reset translation so TransformControls gizmo is centered
+      femurGeo.computeBoundingBox();
+      const center = new T.Vector3();
+      femurGeo.boundingBox?.getCenter(center);
+      femurGeo.translate(-center.x, -center.y, -center.z);
+      
+      const mat = new T.MeshStandardMaterial({ color: 0xffffff, metalness: 0.1, roughness: 0.4 });
+      const femurMesh = new T.Mesh(femurGeo, mat);
+      femurMesh.position.copy(center);
+      scene.add(femurMesh);
+      
+      transformControls.attach(femurMesh);
+      transformControls.setMode('translate');
+      transformControls.visible = true;
+      transformControls.enabled = true;
+      
+      dirty = true;
+    }
   };
-
   if (spawnToolRef) {
     spawnToolRef.current = (toolType: 'screw' | 'rod' | 'clip') => {
       let geo: T.BufferGeometry;
