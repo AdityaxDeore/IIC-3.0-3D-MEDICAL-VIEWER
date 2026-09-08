@@ -45,16 +45,25 @@ export async function initializeHandTracking(videoEl: HTMLVideoElement, canvasEl
     },
     runningMode: runningMode,
     numHands: 2,
-    minHandDetectionConfidence: 0.7,
-    minHandPresenceConfidence: 0.7,
-    minTrackingConfidence: 0.8
+    // Lower thresholds keep the cheap frame-to-frame tracker engaged instead of
+    // repeatedly falling back to the expensive full-hand detector.
+    minHandDetectionConfidence: 0.6,
+    minHandPresenceConfidence: 0.5,
+    minTrackingConfidence: 0.5
   });
 }
 
 export async function startCamera() {
   if (!videoElement) return;
+  // Keep the capture small: landmark inference cost scales with frame size, and a
+  // 1080p webcam feed is the main source of gesture lag. 640x480 is plenty.
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "user" },
+    video: {
+      facingMode: "user",
+      width: { ideal: 640 },
+      height: { ideal: 480 },
+      frameRate: { ideal: 30, max: 30 }
+    },
     audio: false
   });
   videoElement.srcObject = stream;

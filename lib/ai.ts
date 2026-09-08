@@ -14,8 +14,8 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 export async function classifyMRI(file: File): Promise<ClassificationResult> {
-  const endpoint = import.meta.env.VITE_VISTA_ENDPOINT || "http://localhost:8000/v1/vista3d/inference";
-  const apiKey = import.meta.env.VITE_NGC_API_KEY;
+  const endpoint = import.meta.env.VITE_VISTA_ENDPOINT || "https://health.api.nvidia.com/v1/medicalimaging/nvidia/vista-3d";
+  const apiKey = import.meta.env.VITE_NVIDIA_VISTA_API || import.meta.env.VITE_NVIDIA_VISTA_FALLBACK;
 
   try {
     const base64Image = await fileToBase64(file);

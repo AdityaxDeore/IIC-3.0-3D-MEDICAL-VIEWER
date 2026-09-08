@@ -11,22 +11,112 @@ import {PointerTap} from './pointer-tap';
 import {SYSTEMS,type Atlas,type SceneState} from './anatomy';
 import { initializeHandTracking, startCamera, startTracking } from '../lib/hand-tracking';
 import { InteractionCommand } from '../lib/gestures';
+import { playConfirmationSound, playGrabSound, playSnapSound } from '@/lib/audio-manager';
+import { MriEditor } from '../lib/mri-editor';
 
 import { Maximize2, Minimize2 } from 'lucide-react';
 
-interface Props {atlas:Atlas;state:SceneState;onSelect:(id:string)=>void;onProgress:(n:number)=>void;onError:(s:string)=>void;onMriUpload:(file:File)=>void;spawnToolRef:React.MutableRefObject<((tool:'screw'|'rod'|'clip')=>void)|null>}
-export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,onMriUpload,spawnToolRef}:Props){
+export interface SceneActions {
+  setTransformMode: (mode: 'translate' | 'rotate' | 'scale') => void;
+  setMode: (mode: 'standard' | 'exoskeleton' | 'mri' | 'hidden') => void;
+  setMriTarget: (target: 'body' | 'mri') => void;
+  autoAlignToBone: () => void;
+  takeSnapshot?: () => Promise<string>;
+}
+
+interface Props {atlas:Atlas;state:SceneState;onSelect:(id:string)=>void;onProgress:(n:number)=>void;onError:(s:string)=>void;onMriUpload:(file:File)=>void;spawnToolRef:React.MutableRefObject<((tool:'screw'|'rod'|'clip')=>void)|null>;sceneActionsRef?:React.MutableRefObject<SceneActions|null>}
+export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,onMriUpload,spawnToolRef,sceneActionsRef}:Props){
  const host=useRef<HTMLDivElement>(null),latest=useRef(state),select=useRef(onSelect);
  const [mode, setMode] = useState<"standard" | "exoskeleton" | "mri" | "hidden">("standard");
  const [mriTarget, setMriTarget] = useState<"body" | "mri">("mri");
  const [transformMode, setTransformMode] = useState<"translate" | "rotate" | "scale">("translate");
+ const [mriEditMode, setMriEditMode] = useState<"resize" | "align">("resize");
  const [cameraExpanded, setCameraExpanded] = useState(false);
- const onMriUploadRef = useRef<((f: File) => void) | null>(null);
+ const onMriUploadRef = useRef<((f: File | string) => void) | null>(null);
  const mriTargetRef = useRef(mriTarget);
  const transformModeRef = useRef(transformMode);
+ const mriEditModeRef = useRef(mriEditMode);
+ const modeRef = useRef(mode);
+ const transformControlsRef = useRef<TransformControls | null>(null);
+ const mriEditorRef = useRef<MriEditor | null>(null);
+ const dirtyRef = useRef<boolean>(true);
  mriTargetRef.current = mriTarget;
  transformModeRef.current = transformMode;
+ mriEditModeRef.current = mriEditMode;
+ modeRef.current = mode;
  latest.current=state;select.current=onSelect;
+
+  const updateTransformMode = (m: "translate" | "rotate" | "scale") => {
+    // Map legacy voice commands to new Canva-style modes
+    const targetMode = m === 'scale' || m === 'rotate' ? 'resize' : 'align';
+    setMriEditMode(targetMode);
+    mriEditModeRef.current = targetMode;
+    if (mriEditorRef.current) {
+      mriEditorRef.current.mode = targetMode;
+    }
+    dirtyRef.current = true;
+  };
+
+  const autoAlignToBone = () => {
+    if (mriEditorRef.current && mriEditorRef.current.mesh) {
+      const femurRightIdx = atlas.parts.findIndex(p => p.id === 'FMA24474');
+      const femurLeftIdx = atlas.parts.findIndex(p => p.id === 'FMA24475');
+      // The user specified the Left Femoral Neck!
+      const targetIdx = femurLeftIdx;
+      
+      if (targetIdx >= 0) {
+         const bounds = atlas.parts[targetIdx].bounds;
+         const min = new T.Vector3().fromArray(bounds[0]);
+         const max = new T.Vector3().fromArray(bounds[1]);
+         const center = min.clone().add(max).multiplyScalar(0.5);
+         const length = max.y - min.y;
+         
+         const m = mriEditorRef.current.mesh;
+         m.position.copy(center);
+         // Submerge exactly in the center of the femur
+         m.position.z -= 0.02; // Push slightly back so it slices the bone
+         m.position.y += 0.12; // Shift up because the image femur is in the lower half
+         m.position.x += 0.06; // Shift right to match the left femur placement in the image
+         
+         // The femur in the image takes up about 50% of the vertical space.
+         // Plane is 1.5 units high. We want 1.5 * scale * 0.5 = length.
+         // So scale = length / 0.75
+         const targetScale = length / 0.75; 
+         m.scale.set(targetScale, targetScale, 1);
+         
+         // Inward angle for left femur
+         m.rotation.set(0, 0, -0.12);
+         
+         dirtyRef.current = true;
+         playConfirmationSound();
+      }
+    }
+  };
+
+  const snapshotRequestRef = useRef<((dataUrl: string) => void) | null>(null);
+
+  if (sceneActionsRef) {
+    sceneActionsRef.current = {
+      setTransformMode: updateTransformMode,
+      setMode: (m) => {
+        setMode(m);
+        modeRef.current = m;
+        dirtyRef.current = true;
+      },
+      setMriTarget: (t) => {
+        setMriTarget(t);
+        mriTargetRef.current = t;
+        dirtyRef.current = true;
+      },
+      autoAlignToBone,
+      takeSnapshot: () => {
+         return new Promise((resolve) => {
+            snapshotRequestRef.current = resolve;
+            dirtyRef.current = true;
+         });
+      }
+    };
+  }
  useEffect(()=>{
   const el=host.current!;let disposed=false,frame=0,dirty=true,ready=false,lastView='',lastReset=-1,lastIsolate='',layoutKey='',amount=0;
   let lastState:SceneState|null=null;
@@ -39,30 +129,81 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   const trackball=new TrackballControls(camera,renderer.domElement);
   trackball.rotateSpeed = 4.0; trackball.zoomSpeed = 1.2; trackball.panSpeed = 0.8; trackball.addEventListener('change',()=>{dirty=true;});
   camera.position.set(1.4,1.05,3.6);controls.target.set(0,.85,0);controls.enableDamping=true;controls.dampingFactor=.085;controls.minDistance=.07;controls.maxDistance=40;controls.minPolarAngle=0;controls.maxPolarAngle=Math.PI;controls.addEventListener('change',()=>{dirty=true;});
-  const transformControls = new TransformControls(camera, renderer.domElement);
-  transformControls.size = 2.0;
-  transformControls.addEventListener('dragging-changed', (event) => { 
-      controls.enabled = !event.value && !latest.current.isolate; 
-      trackball.enabled = !event.value && latest.current.isolate; 
-  });
-  transformControls.addEventListener('change', () => { dirty = true; });
-  scene.add(transformControls);
   scene.add(camera);
   const mriTextureRef = { current: null as T.Texture | null };
-  onMriUploadRef.current = (file: File) => {
-    const url = URL.createObjectURL(file);
-    const texture = new T.TextureLoader().load(url, () => { dirty = true; });
+  onMriUploadRef.current = (file: File | string) => {
+    const url = typeof file === 'string' ? file : URL.createObjectURL(file);
+    if (mriEditorRef.current) {
+      scene.remove(mriEditorRef.current.mesh);
+      mriEditorRef.current.dispose();
+    }
+    const texture = new T.TextureLoader().load(url, (tex) => { 
+      if (mriEditorRef.current && mriEditorRef.current.mesh) {
+        const img = tex.image;
+        if (img && img.width && img.height) {
+          const aspect = img.width / img.height;
+          // Only adjust width to match the aspect ratio; height remains 1 relative to geometry
+          mriEditorRef.current.mesh.scale.set(aspect, 1, 1);
+          mriEditorRef.current.update();
+        }
+      }
+      dirty = true; 
+    });
     mriTextureRef.current = texture;
     const geo = new T.PlaneGeometry(1.5, 1.5);
-    const mat = new T.MeshBasicMaterial({ map: texture, side: T.DoubleSide, transparent: true, opacity: 0.7, depthWrite: false });
+    const mat = new T.MeshBasicMaterial({ map: texture, side: T.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false });
     const mesh = new T.Mesh(geo, mat);
-    mesh.position.set(0, 0, -3); // Attach 3 units in front of the camera
-    camera.add(mesh);
-    transformControls.attach(mesh);
+    mesh.position.set(0.6, 1.0, 0.4); // Placed in the physical scene next to the body
+    scene.add(mesh);
+    const overlayElement = document.getElementById('mri-editor-overlay');
+    if (overlayElement) {
+      mriEditorRef.current = new MriEditor(mesh, camera, renderer.domElement, overlayElement, () => {
+         dirtyRef.current = true;
+      });
+    }
     dirty = true;
   };
   (window as any).mriTextureRef = mriTextureRef;
-  
+   // Load default image for the simulation if none loaded yet
+   setTimeout(() => {
+     if (onMriUploadRef.current && !mriTextureRef.current) {
+       onMriUploadRef.current('/MRI-of-a-Stress-Fracture-in-the-Left-Femoral-Neck-MRI-image-showing-a-stress-fracture-of_Q320.webp');
+     }
+   }, 500);
+  // Additive bridge for opt-in features (the VISTA-3D bone reconstruction).
+  // It only exposes the scene and a redraw request; nothing here changes how
+  // the viewer itself builds, animates or renders.
+  (window as any).__anatomyScene = {
+    scene, camera, requestRender: () => { if (!disposed) dirty = true; },
+    extractFemur: () => {
+      const femurIdx = atlas.parts.findIndex(p => p.id === 'FMA24475'); // Left Femur
+      if (femurIdx < 0 || !pickers[femurIdx]) return;
+      
+      // Hide original femur in the atlas shader
+      data[femurIdx * 4 + 3] = 0;
+      partTexture.needsUpdate = true;
+      
+      // Extract vertices into a standalone geometry
+      const femurGeo = pickers[femurIdx].geometry.clone();
+      // Reset translation so TransformControls gizmo is centered
+      femurGeo.computeBoundingBox();
+      const center = new T.Vector3();
+      femurGeo.boundingBox?.getCenter(center);
+      femurGeo.translate(-center.x, -center.y, -center.z);
+      
+      const mat = new T.MeshStandardMaterial({ color: 0xffffff, metalness: 0.1, roughness: 0.4 });
+      const femurMesh = new T.Mesh(femurGeo, mat);
+      femurMesh.position.copy(center);
+      scene.add(femurMesh);
+      
+      transformControls.attach(femurMesh);
+      transformControls.setMode('translate');
+      transformControls.visible = true;
+      transformControls.enabled = true;
+      
+      dirty = true;
+    }
+  };
   if (spawnToolRef) {
     spawnToolRef.current = (toolType: 'screw' | 'rod' | 'clip') => {
       let geo: T.BufferGeometry;
@@ -167,17 +308,10 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   const clock=new T.Clock();let lastExtent=-1;
   const animate=()=>{
    if(disposed)return;frame=requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.05),s=latest.current;
-   if (transformControls) {
-     const isMriActive = mriTargetRef.current === 'mri';
-     if (transformControls.enabled !== isMriActive && transformControls.object) {
-       transformControls.enabled = isMriActive;
-       transformControls.visible = isMriActive;
-       dirty = true;
-     }
-     if (transformControls.mode !== transformModeRef.current) {
-       transformControls.setMode(transformModeRef.current);
-       dirty = true;
-     }
+   if (mriEditorRef.current) {
+     const isMriMode = modeRef.current === 'mri';
+     mriEditorRef.current.mesh.visible = isMriMode;
+     mriEditorRef.current.update();
    }
    const changed=lastState?.visible!==s.visible||lastState?.selected!==s.selected||lastState?.isolate!==s.isolate;
    const moving=Math.abs(amount-s.explode)>.0001;
@@ -205,118 +339,160 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
      }else if(lastIsolate){camera.clearViewOffset();fit(s.view,amount);}
     lastIsolate=isolateKey;
    }
-   controls.enabled = (!s.isolate) && (mriTargetRef.current === 'body');
-   trackball.enabled = (s.isolate) && (mriTargetRef.current === 'body');
+   // Camera is always allowed; interactions on the MRI image are isolated by stopPropagation in MriEditor.
+   controls.enabled = (!s.isolate);
+   trackball.enabled = (s.isolate);
    controls.enableRotate=amount<.8;controls.mouseButtons.LEFT=amount<.8?T.MOUSE.ROTATE:T.MOUSE.PAN;controls.touches.ONE=amount<.8?T.TOUCH.ROTATE:T.TOUCH.PAN;ground.visible=platform.visible=ring.visible=innerRing.visible=amount<.5&&!s.isolate;markers.visible=amount>.75;controls.autoRotate=s.rotate&&!s.isolate&&amount<.4;controls.autoRotateSpeed=.65;
    if(controls.enabled){controls.update();if(controls.autoRotate)dirty=true;}
    if(trackball.enabled){trackball.update();}
-   if(dirty){renderer.render(scene,camera);targets=[];if(amount>.45){const hasSolid=atlas.parts.some((p,i)=>p.system!=='integumentary'&&data[i*4+3]>.5);atlas.parts.forEach((p,i)=>{if(data[i*4+3]<.5||(hasSolid&&p.system==='integumentary'))return;let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;for(let corner=0;corner<8;corner++){projected.set(p.bounds[(corner&1)?1:0][0]+data[i*4],p.bounds[(corner&2)?1:0][1]+data[i*4+1],p.bounds[(corner&4)?1:0][2]+data[i*4+2]).project(camera);const x=(projected.x+1)*el.clientWidth/2,y=(1-projected.y)*el.clientHeight/2;left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);}projected.copy(centers[i]).add(new T.Vector3(data[i*4],data[i*4+1],data[i*4+2])).project(camera);if(projected.z< -1||projected.z>1)return;targets.push({index:i,x:(projected.x+1)*el.clientWidth/2,y:(1-projected.y)*el.clientHeight/2,left,right,top,bottom});});}dirty=false;}
+   if(dirty || dirtyRef.current){
+    renderer.render(scene,camera);
+    if (snapshotRequestRef.current) {
+       const dataUrl = renderer.domElement.toDataURL('image/jpeg', 0.85);
+       snapshotRequestRef.current(dataUrl);
+       snapshotRequestRef.current = null;
+    }
+    targets=[];if(amount>.45){const hasSolid=atlas.parts.some((p,i)=>p.system!=='integumentary'&&data[i*4+3]>.5);atlas.parts.forEach((p,i)=>{if(data[i*4+3]<.5||(hasSolid&&p.system==='integumentary'))return;let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;for(let corner=0;corner<8;corner++){projected.set(p.bounds[(corner&1)?1:0][0]+data[i*4],p.bounds[(corner&2)?1:0][1]+data[i*4+1],p.bounds[(corner&4)?1:0][2]+data[i*4+2]).project(camera);const x=(projected.x+1)*el.clientWidth/2,y=(1-projected.y)*el.clientHeight/2;left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);}projected.copy(centers[i]).add(new T.Vector3(data[i*4],data[i*4+1],data[i*4+2])).project(camera);if(projected.z< -1||projected.z>1)return;targets.push({index:i,x:(projected.x+1)*el.clientWidth/2,y:(1-projected.y)*el.clientHeight/2,left,right,top,bottom});});}dirty=false;dirtyRef.current=false;}
   };animate();
   const contextLost=(e:Event)=>{e.preventDefault();onError('The 3D session was paused by your device. Reload to continue.');};renderer.domElement.addEventListener('webglcontextlost',contextLost);
 
-  let isRotating = false;
-  let isPanning = false;
-  let lastZoom = 0;
+  // Orbit the camera around the current target by spherical deltas (radians).
+  const orbitBy=(dTheta:number,dPhi:number)=>{
+   const offset=camera.position.clone().sub(controls.target);
+   const sph=new T.Spherical().setFromVector3(offset);
+   sph.theta-=dTheta;sph.phi-=dPhi;
+   sph.phi=Math.max(0.05,Math.min(Math.PI-0.05,sph.phi));
+   offset.setFromSpherical(sph);
+   camera.position.copy(controls.target).add(offset);camera.lookAt(controls.target);
+   controls.update();trackball.target.copy(controls.target);dirty=true;
+  };
+  // Dolly the camera toward/away from the target. scale<1 moves closer (zoom in).
+  const dollyBy=(scale:number)=>{
+   const offset=camera.position.clone().sub(controls.target);
+   const nextLen=offset.length()*scale;
+   if(nextLen<controls.minDistance||nextLen>controls.maxDistance)return;
+   offset.multiplyScalar(scale);camera.position.copy(controls.target).add(offset);
+   controls.update();trackball.target.copy(controls.target);dirty=true;
+  };
+  // Slide camera + target across the view plane. Positive dx drags the model right.
+  const panBy=(dx:number,dy:number)=>{
+   camera.updateMatrixWorld();
+   const dist=camera.position.distanceTo(controls.target);
+   const viewHeight=2*dist*Math.tan(T.MathUtils.degToRad(camera.fov/2));
+   const right=new T.Vector3().setFromMatrixColumn(camera.matrixWorld,0);
+   const up=new T.Vector3().setFromMatrixColumn(camera.matrixWorld,1);
+   const move=new T.Vector3().addScaledVector(right,-dx*viewHeight*camera.aspect).addScaledVector(up,dy*viewHeight);
+   camera.position.add(move);controls.target.add(move);
+   controls.update();trackball.target.copy(controls.target);dirty=true;
+  };
+
   let lastX = 0, lastY = 0;
-  let dragAnchorX = 0, dragAnchorY = 0, handAnchorX = 0, handAnchorY = 0;
+  // Two-finger rotate/pivot state (smoothed hand position + finger angle).
+  let rotActive = false, rotSX = 0, rotSY = 0, rotSRoll = 0;
+  // Closed-fist pan state (smoothed hand position).
+  let panActive = false, panSX = 0, panSY = 0;
+  // Two-hand pinch zoom state.
+  let prevZoom = 0;
+  const SMOOTH = 0.7;        // weight of the newest sample (higher = snappier, noisier)
+  const HOLD_POS = 0.002;    // hand travel below this (normalised) is treated as "held still"
+  const HOLD_ROLL = 0.008;   // finger-angle change below this (radians) is treated as "held still"
+  const ROTATE_GAIN = 3.4;   // finger travel across the view -> radians of orbit
+  const ROLL_GAIN = 2.2;     // finger rotation in camera space -> spin about the vertical axis
+  const PAN_GAIN = 1.6;      // hand travel across the view -> viewport-heights of pan
   const initTracking = async () => {
     const video = document.getElementById('hand-video') as HTMLVideoElement;
     const canvas = document.getElementById('hand-canvas') as HTMLCanvasElement;
     if (!video || !canvas) return;
     await initializeHandTracking(video, canvas, (cmd) => {
       const cursor = document.getElementById('hand-cursor');
-      if (!cursor) return;
-      if (!cmd) {
-        cursor.style.display = 'none';
-        if (isRotating) {
-          isRotating = false;
-          renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 0 }));
+
+      // Reset transient state as soon as the driving gesture stops.
+      if (!cmd || cmd.type !== 'ROTATE') { rotActive = false; }
+      if (!cmd || cmd.type !== 'PAN') { panActive = false; }
+      if (!cmd || cmd.type !== 'ZOOM') { prevZoom = 0; }
+      if (!cmd) { if (cursor) cursor.style.display = 'none'; return; }
+
+      if (cmd.type === 'PAN') {
+        // Closed fist -> grab and drag the model. A roughly still fist holds it in place.
+        const hx = 1 - cmd.dx;   // un-mirror (the webcam feed is flipped)
+        const hy = cmd.dy;
+        if (!panActive) {
+          panActive = true;
+          playGrabSound();
+          panSX = hx; panSY = hy;
+        } else {
+          const nx = panSX * (1 - SMOOTH) + hx * SMOOTH;
+          const ny = panSY * (1 - SMOOTH) + hy * SMOOTH;
+          const dx = nx - panSX, dy = ny - panSY;
+          panSX = nx; panSY = ny;
+          if (Math.hypot(dx, dy) >= HOLD_POS) panBy(dx * PAN_GAIN, dy * PAN_GAIN);
         }
-        if (isPanning) {
-          isPanning = false;
-          renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 0 }));
-        }
-        lastZoom = 0;
+        if (cursor) cursor.style.display = 'none';
         return;
       }
 
-      let rawX = 0, rawY = 0;
-      if (cmd.type === 'CURSOR' || cmd.type === 'SELECT') { rawX = cmd.x; rawY = cmd.y; }
-      else if (cmd.type === 'ROTATE' || cmd.type === 'PAN') { rawX = cmd.dx; rawY = cmd.dy; }
-
-      if (rawX !== 0 || rawY !== 0) {
-        let x = (1 - rawX) * window.innerWidth;
-        let y = rawY * window.innerHeight;
-        
-        const isDragging = cmd.type === 'ROTATE' || cmd.type === 'PAN';
-        const wasDragging = isRotating || isPanning;
-        
-        if (isDragging) {
-           if (!wasDragging) {
-             handAnchorX = x; handAnchorY = y;
-             dragAnchorX = lastX || x; dragAnchorY = lastY || y;
-           }
-           const dx = (x - handAnchorX) * 0.25; // Reduce sensitivity to 25%
-           const dy = (y - handAnchorY) * 0.25;
-           x = dragAnchorX + dx;
-           y = dragAnchorY + dy;
+      if (cmd.type === 'ZOOM') {
+        // Widen the distance between the pinched hands -> go in; narrow it -> pull out.
+        if (prevZoom > 0 && cmd.amount > 0.0001) {
+          let scale = prevZoom / cmd.amount;
+          scale = Math.max(0.9, Math.min(1.1, scale));
+          dollyBy(scale);
         }
-
-        // Exponential Moving Average for buttery smooth gestures
-        if (lastX === 0 && lastY === 0) { lastX = x; lastY = y; }
-        else { lastX = lastX * 0.65 + x * 0.35; lastY = lastY * 0.65 + y * 0.35; }
+        prevZoom = prevZoom === 0 ? cmd.amount : prevZoom * 0.5 + cmd.amount * 0.5;
+        if (cursor) cursor.style.display = 'none';
+        return;
       }
 
-      if (cmd.type === 'CURSOR' || cmd.type === 'SELECT') {
-        cursor.style.display = 'block';
-        cursor.style.left = `${lastX - 6}px`;
-        cursor.style.top = `${lastY - 6}px`;
-        cursor.style.backgroundColor = cmd.type === 'SELECT' ? 'rgba(0, 150, 255, 0.9)' : 'rgba(255, 0, 0, 0.7)';
-        cursor.style.transform = cmd.type === 'SELECT' ? 'scale(1.3)' : 'scale(1)';
-
-        renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { pointerId: 99, clientX: lastX, clientY: lastY, button: -1, buttons: 0 }));
-        
-        if (cmd.type === 'SELECT') {
-          renderer.domElement.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1 }));
-          renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 0 }));
-        }
-      } else if (cmd.type === 'ROTATE') {
-        if (!isRotating) {
-          isRotating = true;
-          renderer.domElement.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1 }));
+      if (cmd.type === 'ROTATE') {
+        // Two fingers (index + middle). Move them to orbit/pivot the model;
+        // rotate the finger pair in camera space to spin it. A still hand holds.
+        const hx = 1 - cmd.dx;   // un-mirror (the webcam feed is flipped)
+        const hy = cmd.dy;
+        if (!rotActive) {
+          rotActive = true;
+          playGrabSound();
+          rotSX = hx; rotSY = hy; rotSRoll = cmd.roll;
+          controls.target.set(0, 0, 0);   // pivot at the feet, between the legs
+          controls.update();
+          dirty = true;
+          dirtyRef.current = true;
         } else {
-          renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1 }));
-        }
-      } else if (cmd.type === 'PAN') {
-        if (!isPanning) {
-          isPanning = true;
-          renderer.domElement.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 2 }));
-        } else {
-          renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 2 }));
-        }
-      } else if (cmd.type === 'ZOOM') {
-        if (lastZoom > 0) {
-          const smoothedAmount = lastZoom * 0.8 + cmd.amount * 0.2;
-          const delta = smoothedAmount - lastZoom;
-          if (Math.abs(delta) > 0.001) {
-            renderer.domElement.dispatchEvent(new WheelEvent('wheel', { deltaY: -delta * 5000 }));
+          // Unwrap the finger angle onto the same branch as the running value.
+          let roll = cmd.roll;
+          while (roll - rotSRoll > Math.PI) roll -= Math.PI * 2;
+          while (roll - rotSRoll < -Math.PI) roll += Math.PI * 2;
+          const nx = rotSX * (1 - SMOOTH) + hx * SMOOTH;
+          const ny = rotSY * (1 - SMOOTH) + hy * SMOOTH;
+          const nr = rotSRoll * (1 - SMOOTH) + roll * SMOOTH;
+          const dx = nx - rotSX, dy = ny - rotSY, dr = nr - rotSRoll;
+          rotSX = nx; rotSY = ny; rotSRoll = nr;
+          if (Math.hypot(dx, dy) >= HOLD_POS || Math.abs(dr) >= HOLD_ROLL) {
+            orbitBy(dx * ROTATE_GAIN + dr * ROLL_GAIN, dy * ROTATE_GAIN);
           }
-          lastZoom = smoothedAmount;
-        } else {
-          lastZoom = cmd.amount;
         }
+        if (cursor) cursor.style.display = 'none';
+        return;
       }
 
-      if (cmd.type !== 'ROTATE' && isRotating) {
-        isRotating = false;
-        renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 0 }));
-      }
-      if (cmd.type !== 'PAN' && isPanning) {
-        isPanning = false;
-        renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 0 }));
-      }
-      if (cmd.type !== 'ZOOM') {
-        lastZoom = 0;
+      // CURSOR / SELECT -> move the on-screen pointer, click on a pinch.
+      if (cmd.type === 'CURSOR' || cmd.type === 'SELECT') {
+        const x = (1 - cmd.x) * window.innerWidth;
+        const y = cmd.y * window.innerHeight;
+        if (lastX === 0 && lastY === 0) { lastX = x; lastY = y; }
+        else { lastX = lastX * 0.35 + x * 0.65; lastY = lastY * 0.35 + y * 0.65; }
+        if (cursor) {
+          cursor.style.display = 'block';
+          cursor.style.left = `${lastX - 6}px`;
+          cursor.style.top = `${lastY - 6}px`;
+          cursor.style.backgroundColor = cmd.type === 'SELECT' ? 'rgba(0, 150, 255, 0.9)' : 'rgba(255, 0, 0, 0.7)';
+          cursor.style.transform = cmd.type === 'SELECT' ? 'scale(1.3)' : 'scale(1)';
+        }
+        const target = document.elementFromPoint(lastX, lastY) || renderer.domElement;
+        target.dispatchEvent(new PointerEvent('pointermove', { pointerId: 99, clientX: lastX, clientY: lastY, button: -1, buttons: 0 }));
+        if (cmd.type === 'SELECT') {
+          target.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1 }));
+          target.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 0 }));
+        }
       }
     });
     await startCamera();
@@ -324,7 +500,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   };
   initTracking();
 
-  return()=>{disposed=true;abort.abort();cancelAnimationFrame(frame);observer.disconnect();controls.dispose();transformControls.dispose();geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());scene.traverse(o=>{if(o instanceof T.Mesh&&!geometries.includes(o.geometry)){o.geometry.dispose();const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>m.dispose());}});env.dispose();partTexture.dispose();selectionTexture.dispose();markerGeometry.dispose();markerMaterial.dispose();hover.remove();renderer.dispose();renderer.domElement.remove();};
+  return()=>{disposed=true;abort.abort();cancelAnimationFrame(frame);observer.disconnect();controls.dispose();if(mriEditorRef.current)mriEditorRef.current.dispose();geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());scene.traverse(o=>{if(o instanceof T.Mesh&&!geometries.includes(o.geometry)){o.geometry.dispose();const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>m.dispose());}});env.dispose();partTexture.dispose();selectionTexture.dispose();markerGeometry.dispose();markerMaterial.dispose();hover.remove();renderer.dispose();renderer.domElement.remove();};
  },[atlas]);
 
  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -337,6 +513,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
  return (
   <>
    <div className="scene" ref={host}/>
+   <div id="mri-editor-overlay" style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', pointerEvents: 'none', zIndex: 1000 }}></div>
    
    <div style={{ position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', zIndex: 1002, display: 'flex', gap: '8px', background: 'rgba(255,255,255,0.8)', padding: '6px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
     <button onClick={() => setMode('standard')} style={{background: mode==='standard'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>Standard</button>
@@ -354,33 +531,49 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
         <button onClick={() => setMriTarget('mri')} id="btn-control-mri" style={{background: '#e2e8f0', padding: '4px 10px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', border: mriTarget === 'mri' ? '2px solid #3b82f6' : '2px solid transparent'}}>Control MRI</button>
       </div>
       {mriTarget === 'mri' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '5px' }}>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={() => setTransformMode('translate')} style={{background: '#e2e8f0', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: transformMode === 'translate' ? '2px solid #3b82f6' : '2px solid transparent'}}>Move</button>
-            <button onClick={() => setTransformMode('rotate')} style={{background: '#e2e8f0', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: transformMode === 'rotate' ? '2px solid #3b82f6' : '2px solid transparent'}}>Rotate</button>
-            <button onClick={() => setTransformMode('scale')} style={{background: '#e2e8f0', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: transformMode === 'scale' ? '2px solid #3b82f6' : '2px solid transparent'}}>Scale</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '5px', width: '100%' }}>
+          <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid #ccc', paddingBottom: '8px', width: '100%', justifyContent: 'center' }}>
+            <button onClick={() => { setMriEditMode('resize'); if(mriEditorRef.current) mriEditorRef.current.mode = 'resize'; }} style={{background: mriEditMode === 'resize' ? '#3b82f6' : '#e2e8f0', color: mriEditMode === 'resize' ? 'white' : 'black', padding: '6px 12px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', border: 'none', fontWeight: 'bold'}}>RESIZE</button>
+            <button onClick={() => { setMriEditMode('align'); if(mriEditorRef.current) mriEditorRef.current.mode = 'align'; }} style={{background: mriEditMode === 'align' ? '#3b82f6' : '#e2e8f0', color: mriEditMode === 'align' ? 'white' : 'black', padding: '6px 12px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', border: 'none', fontWeight: 'bold'}}>ALIGN</button>
           </div>
-          <button onClick={() => {
-            if (transformControls.object) {
-               // Simulate AI-based auto alignment by adjusting the MRI scale to match a typical isolated bone
-               transformControls.object.scale.set(0.65, 0.65, 0.65);
-               transformControls.object.position.set(0, 0, -2);
-               dirty = true;
-            }
-          }} style={{background: '#3b82f6', color: 'white', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: 'none', fontWeight: 'bold'}}>
-             Auto-Align to Bone
-          </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
-             <span>Crop:</span>
-             <input type="range" min="0.1" max="1" step="0.05" defaultValue="1" onChange={e => {
-                const tr = (window as any).mriTextureRef;
-                if(tr && tr.current) {
-                   const val = parseFloat(e.target.value);
-                   tr.current.repeat.set(val, val);
-                   tr.current.offset.set((1-val)/2, (1-val)/2);
-                }
-             }} />
-          </div>
+          
+          {mriEditMode === 'resize' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', justifyContent: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                <input type="checkbox" defaultChecked={true} onChange={e => { if(mriEditorRef.current) mriEditorRef.current.aspectLocked = e.target.checked; }} />
+                Lock Ratio
+              </label>
+               <span style={{marginLeft: '10px'}}>Opacity:</span>
+               <input type="range" min="0" max="1" step="0.05" defaultValue="0.85" onChange={e => {
+                  if(mriEditorRef.current && mriEditorRef.current.mesh) {
+                     (mriEditorRef.current.mesh.material as T.Material).opacity = parseFloat(e.target.value);
+                     dirtyRef.current = true;
+                  }
+               }} style={{width: '60px'}} />
+            </div>
+          )}
+          
+          {mriEditMode === 'align' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                <span>Target: <b>Femur ▼</b></span>
+              </div>
+              <button onClick={autoAlignToBone} style={{background: '#10b981', color: 'white', padding: '6px 12px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', border: 'none', fontWeight: 'bold'}}>
+                 AUTO ALIGN
+              </button>
+              
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', marginTop: '4px' }}>
+                 <span style={{width: '40px'}}>Depth</span>
+                 <input type="range" min="-2" max="2" step="0.05" defaultValue="0" onChange={e => {
+                    if (mriEditorRef.current && mriEditorRef.current.mesh) {
+                       const m = mriEditorRef.current.mesh;
+                       m.position.z = parseFloat(e.target.value);
+                       dirtyRef.current = true;
+                    }
+                 }} />
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
