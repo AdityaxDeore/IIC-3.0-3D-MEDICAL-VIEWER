@@ -11,11 +11,19 @@ import {PointerTap} from './pointer-tap';
 import {SYSTEMS,type Atlas,type SceneState} from './anatomy';
 import { initializeHandTracking, startCamera, startTracking } from '../lib/hand-tracking';
 import { InteractionCommand } from '../lib/gestures';
+import { playConfirmationSound, playGrabSound, playSnapSound } from '@/lib/audio-manager';
 
 import { Maximize2, Minimize2 } from 'lucide-react';
 
-interface Props {atlas:Atlas;state:SceneState;onSelect:(id:string)=>void;onProgress:(n:number)=>void;onError:(s:string)=>void;onMriUpload:(file:File)=>void;spawnToolRef:React.MutableRefObject<((tool:'screw'|'rod'|'clip')=>void)|null>}
-export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,onMriUpload,spawnToolRef}:Props){
+export interface SceneActions {
+  setTransformMode: (mode: 'translate' | 'rotate' | 'scale') => void;
+  setMode: (mode: 'standard' | 'exoskeleton' | 'mri' | 'hidden') => void;
+  setMriTarget: (target: 'body' | 'mri') => void;
+  autoAlignToBone: () => void;
+}
+
+interface Props {atlas:Atlas;state:SceneState;onSelect:(id:string)=>void;onProgress:(n:number)=>void;onError:(s:string)=>void;onMriUpload:(file:File)=>void;spawnToolRef:React.MutableRefObject<((tool:'screw'|'rod'|'clip')=>void)|null>;sceneActionsRef?:React.MutableRefObject<SceneActions|null>}
+export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,onMriUpload,spawnToolRef,sceneActionsRef}:Props){
  const host=useRef<HTMLDivElement>(null),latest=useRef(state),select=useRef(onSelect);
  const [mode, setMode] = useState<"standard" | "exoskeleton" | "mri" | "hidden">("standard");
  const [mriTarget, setMriTarget] = useState<"body" | "mri">("mri");
@@ -25,10 +33,39 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
  const mriTargetRef = useRef(mriTarget);
  const transformModeRef = useRef(transformMode);
  const modeRef = useRef(mode);
+ const transformControlsRef = useRef<TransformControls | null>(null);
+ const dirtyRef = useRef<boolean>(true);
  mriTargetRef.current = mriTarget;
  transformModeRef.current = transformMode;
  modeRef.current = mode;
  latest.current=state;select.current=onSelect;
+
+ const autoAlignToBone = () => {
+   if (transformControlsRef.current?.object) {
+     transformControlsRef.current.object.scale.set(0.65, 0.65, 0.65);
+     transformControlsRef.current.object.position.set(0, 0, -2);
+     dirtyRef.current = true;
+     playConfirmationSound();
+   }
+ };
+
+ if (sceneActionsRef) {
+   sceneActionsRef.current = {
+     setTransformMode: (m) => {
+       setTransformMode(m);
+       dirtyRef.current = true;
+     },
+     setMode: (m) => {
+       setMode(m);
+       dirtyRef.current = true;
+     },
+     setMriTarget: (t) => {
+       setMriTarget(t);
+       dirtyRef.current = true;
+     },
+     autoAlignToBone,
+   };
+ }
  useEffect(()=>{
   const el=host.current!;let disposed=false,frame=0,dirty=true,ready=false,lastView='',lastReset=-1,lastIsolate='',layoutKey='',amount=0;
   let lastState:SceneState|null=null;
@@ -42,12 +79,18 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   trackball.rotateSpeed = 4.0; trackball.zoomSpeed = 1.2; trackball.panSpeed = 0.8; trackball.addEventListener('change',()=>{dirty=true;});
   camera.position.set(1.4,1.05,3.6);controls.target.set(0,.85,0);controls.enableDamping=true;controls.dampingFactor=.085;controls.minDistance=.07;controls.maxDistance=40;controls.minPolarAngle=0;controls.maxPolarAngle=Math.PI;controls.addEventListener('change',()=>{dirty=true;});
   const transformControls = new TransformControls(camera, renderer.domElement);
+  transformControlsRef.current = transformControls;
   transformControls.size = 2.0;
   transformControls.addEventListener('dragging-changed', (event) => { 
       controls.enabled = !event.value && !latest.current.isolate; 
       trackball.enabled = !event.value && latest.current.isolate; 
+      if (event.value) {
+        playGrabSound();
+      } else {
+        playSnapSound();
+      }
   });
-  transformControls.addEventListener('change', () => { dirty = true; });
+  transformControls.addEventListener('change', () => { dirty = true; dirtyRef.current = true; });
   scene.add(transformControls);
   scene.add(camera);
   const mriTextureRef = { current: null as T.Texture | null };
@@ -56,10 +99,10 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
     const texture = new T.TextureLoader().load(url, () => { dirty = true; });
     mriTextureRef.current = texture;
     const geo = new T.PlaneGeometry(1.5, 1.5);
-    const mat = new T.MeshBasicMaterial({ map: texture, side: T.DoubleSide, transparent: true, opacity: 0.7, depthWrite: false });
+    const mat = new T.MeshBasicMaterial({ map: texture, side: T.DoubleSide, transparent: true, opacity: 0.85, depthWrite: true });
     const mesh = new T.Mesh(geo, mat);
-    mesh.position.set(0, 0, -3); // Attach 3 units in front of the camera
-    camera.add(mesh);
+    mesh.position.set(0.6, 1.0, 0.4); // Placed in the physical scene next to the body
+    scene.add(mesh);
     transformControls.attach(mesh);
     dirty = true;
   };
@@ -219,7 +262,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
    controls.enableRotate=amount<.8;controls.mouseButtons.LEFT=amount<.8?T.MOUSE.ROTATE:T.MOUSE.PAN;controls.touches.ONE=amount<.8?T.TOUCH.ROTATE:T.TOUCH.PAN;ground.visible=platform.visible=ring.visible=innerRing.visible=amount<.5&&!s.isolate;markers.visible=amount>.75;controls.autoRotate=s.rotate&&!s.isolate&&amount<.4;controls.autoRotateSpeed=.65;
    if(controls.enabled){controls.update();if(controls.autoRotate)dirty=true;}
    if(trackball.enabled){trackball.update();}
-   if(dirty){renderer.render(scene,camera);targets=[];if(amount>.45){const hasSolid=atlas.parts.some((p,i)=>p.system!=='integumentary'&&data[i*4+3]>.5);atlas.parts.forEach((p,i)=>{if(data[i*4+3]<.5||(hasSolid&&p.system==='integumentary'))return;let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;for(let corner=0;corner<8;corner++){projected.set(p.bounds[(corner&1)?1:0][0]+data[i*4],p.bounds[(corner&2)?1:0][1]+data[i*4+1],p.bounds[(corner&4)?1:0][2]+data[i*4+2]).project(camera);const x=(projected.x+1)*el.clientWidth/2,y=(1-projected.y)*el.clientHeight/2;left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);}projected.copy(centers[i]).add(new T.Vector3(data[i*4],data[i*4+1],data[i*4+2])).project(camera);if(projected.z< -1||projected.z>1)return;targets.push({index:i,x:(projected.x+1)*el.clientWidth/2,y:(1-projected.y)*el.clientHeight/2,left,right,top,bottom});});}dirty=false;}
+   if(dirty || dirtyRef.current){renderer.render(scene,camera);targets=[];if(amount>.45){const hasSolid=atlas.parts.some((p,i)=>p.system!=='integumentary'&&data[i*4+3]>.5);atlas.parts.forEach((p,i)=>{if(data[i*4+3]<.5||(hasSolid&&p.system==='integumentary'))return;let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;for(let corner=0;corner<8;corner++){projected.set(p.bounds[(corner&1)?1:0][0]+data[i*4],p.bounds[(corner&2)?1:0][1]+data[i*4+1],p.bounds[(corner&4)?1:0][2]+data[i*4+2]).project(camera);const x=(projected.x+1)*el.clientWidth/2,y=(1-projected.y)*el.clientHeight/2;left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);}projected.copy(centers[i]).add(new T.Vector3(data[i*4],data[i*4+1],data[i*4+2])).project(camera);if(projected.z< -1||projected.z>1)return;targets.push({index:i,x:(projected.x+1)*el.clientWidth/2,y:(1-projected.y)*el.clientHeight/2,left,right,top,bottom});});}dirty=false;dirtyRef.current=false;}
   };animate();
   const contextLost=(e:Event)=>{e.preventDefault();onError('The 3D session was paused by your device. Reload to continue.');};renderer.domElement.addEventListener('webglcontextlost',contextLost);
 
@@ -285,6 +328,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
         const hy = cmd.dy;
         if (!panActive) {
           panActive = true;
+          playGrabSound();
           panSX = hx; panSY = hy;
         } else {
           const nx = panSX * (1 - SMOOTH) + hx * SMOOTH;
@@ -316,10 +360,12 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
         const hy = cmd.dy;
         if (!rotActive) {
           rotActive = true;
+          playGrabSound();
           rotSX = hx; rotSY = hy; rotSRoll = cmd.roll;
           controls.target.set(0, 0, 0);   // pivot at the feet, between the legs
           controls.update();
           dirty = true;
+          dirtyRef.current = true;
         } else {
           // Unwrap the finger angle onto the same branch as the running value.
           let roll = cmd.roll;
@@ -363,7 +409,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   };
   initTracking();
 
-  return()=>{disposed=true;abort.abort();cancelAnimationFrame(frame);observer.disconnect();controls.dispose();transformControls.dispose();geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());scene.traverse(o=>{if(o instanceof T.Mesh&&!geometries.includes(o.geometry)){o.geometry.dispose();const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>m.dispose());}});env.dispose();partTexture.dispose();selectionTexture.dispose();markerGeometry.dispose();markerMaterial.dispose();hover.remove();renderer.dispose();renderer.domElement.remove();};
+  return()=>{disposed=true;abort.abort();cancelAnimationFrame(frame);observer.disconnect();controls.dispose();transformControlsRef.current=null;transformControls.dispose();geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());scene.traverse(o=>{if(o instanceof T.Mesh&&!geometries.includes(o.geometry)){o.geometry.dispose();const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>m.dispose());}});env.dispose();partTexture.dispose();selectionTexture.dispose();markerGeometry.dispose();markerMaterial.dispose();hover.remove();renderer.dispose();renderer.domElement.remove();};
  },[atlas]);
 
  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -400,11 +446,12 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
             <button onClick={() => setTransformMode('scale')} style={{background: '#e2e8f0', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: transformMode === 'scale' ? '2px solid #3b82f6' : '2px solid transparent'}}>Scale</button>
           </div>
           <button onClick={() => {
-            if (transformControls.object) {
+            if (transformControlsRef.current?.object) {
                // Simulate AI-based auto alignment by adjusting the MRI scale to match a typical isolated bone
-               transformControls.object.scale.set(0.65, 0.65, 0.65);
-               transformControls.object.position.set(0, 0, -2);
-               dirty = true;
+               transformControlsRef.current.object.scale.set(0.65, 0.65, 0.65);
+               transformControlsRef.current.object.position.set(0, 0.85, 0);
+               dirtyRef.current = true;
+               playConfirmationSound();
             }
           }} style={{background: '#3b82f6', color: 'white', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: 'none', fontWeight: 'bold'}}>
              Auto-Align to Bone
