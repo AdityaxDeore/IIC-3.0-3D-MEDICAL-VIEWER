@@ -10,7 +10,7 @@ export class MriEditor {
   aspectLocked = true;
   
   private handles: Record<string, HTMLElement> = {};
-  private activeHandle: string | null = null;
+  private activeHandle: string | null | undefined = undefined;
   private plane = new T.Plane();
   private raycaster = new T.Raycaster();
   private initialScale = new T.Vector3();
@@ -114,7 +114,7 @@ export class MriEditor {
   }
   
   private onPointerMove = (e: PointerEvent) => {
-    if (!this.activeHandle) return;
+    if (this.activeHandle === undefined) return;
     
     const currentWorld = this.getPointerWorld(e);
     if (!currentWorld) return;
@@ -170,11 +170,12 @@ export class MriEditor {
     }
     
     // To anchor the opposite edge, the center moves by half the actual size change in local space.
+    // The actualDx is exactly the amount the edge moves relative to the center, which is exactly the amount the center must shift to anchor the opposite edge.
     const actualDx = (scaleX - this.initialScale.x) * (geoSize / 2) * (this.activeHandle.includes('l') ? -1 : this.activeHandle.includes('r') ? 1 : 0);
     const actualDy = (scaleY - this.initialScale.y) * (geoSize / 2) * (this.activeHandle.includes('b') ? -1 : this.activeHandle.includes('t') ? 1 : 0);
     
     // Convert local center shift to world shift
-    const centerShiftLocal = new T.Vector3(actualDx / 2, actualDy / 2, 0);
+    const centerShiftLocal = new T.Vector3(actualDx, actualDy, 0);
     // Apply only initial rotation to the shift (scale is already baked into actualDx/actualDy)
     centerShiftLocal.applyEuler(this.initialRotation);
     
@@ -183,7 +184,7 @@ export class MriEditor {
   };
   
   private onPointerUp = () => {
-    this.activeHandle = null;
+    this.activeHandle = undefined;
     document.removeEventListener('pointermove', this.onPointerMove);
     document.removeEventListener('pointerup', this.onPointerUp);
   };
