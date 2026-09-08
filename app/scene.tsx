@@ -12,12 +12,15 @@ import {SYSTEMS,type Atlas,type SceneState} from './anatomy';
 import { initializeHandTracking, startCamera, startTracking } from '../lib/hand-tracking';
 import { InteractionCommand } from '../lib/gestures';
 
+import { Maximize2, Minimize2 } from 'lucide-react';
+
 interface Props {atlas:Atlas;state:SceneState;onSelect:(id:string)=>void;onProgress:(n:number)=>void;onError:(s:string)=>void;onMriUpload:(file:File)=>void;spawnToolRef:React.MutableRefObject<((tool:'screw'|'rod'|'clip')=>void)|null>}
 export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,onMriUpload,spawnToolRef}:Props){
  const host=useRef<HTMLDivElement>(null),latest=useRef(state),select=useRef(onSelect);
  const [mode, setMode] = useState<"standard" | "exoskeleton" | "mri" | "hidden">("standard");
  const [mriTarget, setMriTarget] = useState<"body" | "mri">("mri");
  const [transformMode, setTransformMode] = useState<"translate" | "rotate" | "scale">("translate");
+ const [cameraExpanded, setCameraExpanded] = useState(false);
  const onMriUploadRef = useRef<((f: File) => void) | null>(null);
  const mriTargetRef = useRef(mriTarget);
  const transformModeRef = useRef(transformMode);
@@ -367,9 +370,32 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
     </div>
    )}
 
-   <div style={{ display: 'block' }}>
-     <video id="hand-video" style={{position: 'absolute', bottom: '10px', right: '10px', width: '200px', borderRadius: '8px', zIndex: 1000, transform: 'scaleX(-1)'}} playsInline muted></video>
-     <canvas id="hand-canvas" style={{position: 'absolute', bottom: '10px', right: '10px', width: '200px', borderRadius: '8px', zIndex: 1000, transform: 'scaleX(-1)', pointerEvents: 'none', display: 'block'}}></canvas>
+   <div style={{
+     position: 'absolute',
+     top: cameraExpanded ? 0 : 'auto',
+     left: cameraExpanded ? 0 : 'auto',
+     bottom: cameraExpanded ? 'auto' : '16px',
+     right: cameraExpanded ? 'auto' : '16px',
+     width: cameraExpanded ? '100vw' : '280px',
+     height: cameraExpanded ? '100vh' : 'auto',
+     aspectRatio: cameraExpanded ? 'auto' : '4/3',
+     zIndex: cameraExpanded ? 50 : 1000,
+     borderRadius: cameraExpanded ? '0' : '12px',
+     overflow: 'hidden',
+     pointerEvents: 'none',
+     transition: 'all 0.3s ease',
+     boxShadow: cameraExpanded ? 'none' : '0 10px 25px rgba(0,0,0,0.2)'
+   }}>
+     <video id="hand-video" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)', opacity: cameraExpanded ? 0.05 : 1, transition: 'opacity 0.3s' }} playsInline muted></video>
+     <canvas id="hand-canvas" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }}></canvas>
+     
+     <button 
+       style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 1001, background: 'rgba(0,0,0,0.2)', color: 'white', border: 'none', borderRadius: '4px', padding: '6px', pointerEvents: 'auto', cursor: 'pointer', transition: 'background 0.2s' }}
+       onClick={() => setCameraExpanded(!cameraExpanded)}
+       title={cameraExpanded ? "Minimize" : "Expand Camera"}
+     >
+       {cameraExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+     </button>
    </div>
    <div id="hand-cursor" style={{position: 'absolute', width: '12px', height: '12px', borderRadius: '50%', backgroundColor: 'rgba(255, 0, 0, 0.7)', border: '2px solid white', boxShadow: '0 0 4px rgba(0,0,0,0.5)', zIndex: 1001, pointerEvents: 'none', display: 'none', transition: 'background-color 0.15s ease, transform 0.15s ease'}} />
   </>
