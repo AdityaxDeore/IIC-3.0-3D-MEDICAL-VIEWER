@@ -102,7 +102,7 @@ export default function Home(){
      </div>
 
      {/* NVIDIA VISTA-3D: CT/MRI volume -> skeletal mesh in this same scene. */}
-     <BoneReconstructionPanel />
+     <BoneReconstructionPanel atlas={atlas} />
 
      {/* Surgical Plan UI Overlay */}
      {(classifying || classification) && (

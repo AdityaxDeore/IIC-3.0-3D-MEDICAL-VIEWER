@@ -1,31 +1,42 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as T from 'three';
 import { Activity, Bone, ChevronDown, Trash2, X } from 'lucide-react';
+import type { Atlas } from '@/app/anatomy';
 import { getSceneBridge } from '@/lib/vista/scene-bridge';
+import { REGIONS, getRegionBox, guessRegion, type RegionId } from '@/lib/vista/atlas-regions';
 import { useBoneReconstruction, type BoneResult } from '@/lib/vista/useBoneReconstruction';
 
 const SAMPLE = 'https://assets.ngc.nvidia.com/products/api-catalog/vista3d/example-1.nii.gz';
+const FILL = 0.92; // leave a little headroom inside the atlas region box
 
 /**
  * Self-contained CT/MRI -> 3D bone reconstruction.
  * Mounts its own group into the existing scene and never touches the viewer's
  * own objects, camera or render loop beyond asking for a redraw.
  */
-export default function BoneReconstructionPanel() {
+export default function BoneReconstructionPanel({ atlas }: { atlas?: Atlas | null }) {
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState('');
   const [quality, setQuality] = useState(224);
   const [hu, setHu] = useState(300);
   const [opacity, setOpacity] = useState(1);
   const [scale, setScale] = useState(1);
+  const [region, setRegion] = useState<RegionId | 'auto'>('auto');
   const [mounted, setMounted] = useState(false);
   const groupRef = useRef<T.Group | null>(null);
   const materialRef = useRef<T.MeshStandardMaterial | null>(null);
+  const resultRef = useRef<BoneResult | null>(null);
+  // Base transform that fits the mesh into the atlas region; the Scale slider multiplies it.
+  const fitRef = useRef<{ k: number; halfY: number; center: [number, number, number] } | null>(null);
+  const [effectiveRegion, setEffectiveRegion] = useState<RegionId>('full-skeleton');
   const fileRef = useRef<HTMLInputElement>(null);
   const maskRef = useRef<HTMLInputElement>(null);
   const ctRef = useRef<HTMLInputElement>(null);
 
   const { state, reset, segmentFromUrl, segmentFromFile, meshFromFile, ctFromFile } = useBoneReconstruction();
+
+  const scaleRef = useRef(1);
+  scaleRef.current = scale;
 
   const clear = useCallback(() => {
     const bridge = getSceneBridge();
@@ -43,6 +54,43 @@ export default function BoneReconstructionPanel() {
   }, []);
 
   useEffect(() => clear, [clear]);
+
+  const applyTransform = useCallback((mult: number) => {
+    const group = groupRef.current;
+    const fit = fitRef.current;
+    if (!group || !fit) return;
+    const s = fit.k * mult;
+    group.scale.setScalar(s);
+    // mesh local box centre is (0, halfY, 0); put it on the region centre.
+    group.position.set(fit.center[0], fit.center[1] - s * fit.halfY, fit.center[2]);
+    getSceneBridge()?.requestRender();
+  }, []);
+
+  /**
+   * Fit the raw mesh (worker units) into the atlas region's bounding box:
+   * one uniform scale so it fits inside, then place its box centre on the
+   * region's box centre. The Scale slider multiplies `k` on top.
+   */
+  const fitToRegion = useCallback((result: BoneResult, want: RegionId | 'auto') => {
+    const eff = want === 'auto' ? guessRegion(result.size) : want;
+    setEffectiveRegion(eff);
+
+    const [sx, sy, sz] = result.size.map((v) => Math.max(v, 1e-6)) as [number, number, number];
+    const box = getRegionBox(atlas ?? null, eff);
+
+    let k: number;
+    let center: [number, number, number];
+    if (box) {
+      k = FILL * Math.min(box.size[0] / sx, box.size[1] / sy, box.size[2] / sz);
+      center = box.center;
+    } else {
+      // No atlas to fit against — just normalise to a sane ~0.4 m object on the platform.
+      k = 0.4 / sy;
+      center = [0, 0.2, 0];
+    }
+    fitRef.current = { k, halfY: sy / 2, center };
+    applyTransform(scaleRef.current);
+  }, [atlas, applyTransform]);
 
   const mount = useCallback((result: BoneResult) => {
     const bridge = getSceneBridge();
@@ -66,13 +114,15 @@ export default function BoneReconstructionPanel() {
 
     groupRef.current = group;
     materialRef.current = material;
+    resultRef.current = result;
     setMounted(true);
     setOpacity(1);
     setScale(1);
+    fitToRegion(result, region);
     bridge.requestRender();
-  }, [clear]);
+  }, [clear, region, fitToRegion]);
 
-  // Live opacity / scale without rebuilding the mesh.
+  // Live opacity without rebuilding the mesh.
   useEffect(() => {
     const material = materialRef.current;
     if (!material) return;
@@ -83,12 +133,13 @@ export default function BoneReconstructionPanel() {
     getSceneBridge()?.requestRender();
   }, [opacity]);
 
+  // Scale slider = fine multiplier on top of the region fit.
+  useEffect(() => { applyTransform(scale); }, [scale, applyTransform]);
+
+  // Re-fit when the target region changes, without re-running the worker.
   useEffect(() => {
-    const group = groupRef.current;
-    if (!group) return;
-    group.scale.setScalar(scale);
-    getSceneBridge()?.requestRender();
-  }, [scale]);
+    if (resultRef.current) fitToRegion(resultRef.current, region);
+  }, [region, fitToRegion]);
 
   const run = async (fn: () => Promise<BoneResult | null>) => {
     const result = await fn();
@@ -166,6 +217,21 @@ export default function BoneReconstructionPanel() {
           type="range" min={120} max={600} step={20} value={hu}
           disabled={state.busy} onChange={(e) => setHu(Number(e.target.value))}
         />
+
+        <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>
+          Fit to body region
+        </label>
+        <select
+          value={region}
+          onChange={(e) => setRegion(e.target.value as RegionId | 'auto')}
+          style={{ padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: 7, fontSize: 12, background: '#fff' }}
+        >
+          <option value="auto">Auto-detect{mounted ? ` → ${effectiveRegion}` : ''}</option>
+          {REGIONS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+        </select>
+        <div style={{ fontSize: 10.5, color: '#94a3b8', lineHeight: 1.4 }}>
+          The reconstruction is scaled and placed to match that part of the atlas skeleton.
+        </div>
 
         <details>
           <summary style={{ cursor: 'pointer', fontSize: 11, color: '#64748b', fontWeight: 600 }}>
@@ -268,9 +334,9 @@ export default function BoneReconstructionPanel() {
             </label>
             <input type="range" min={0.15} max={1} step={0.05} value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} />
             <label style={{ fontSize: 11, color: '#475569', display: 'flex', justifyContent: 'space-between' }}>
-              <span>Scale</span><span style={{ fontWeight: 700 }}>{scale.toFixed(2)}×</span>
+              <span>Fine scale (× region fit)</span><span style={{ fontWeight: 700 }}>{scale.toFixed(2)}×</span>
             </label>
-            <input type="range" min={0.2} max={3} step={0.05} value={scale} onChange={(e) => setScale(Number(e.target.value))} />
+            <input type="range" min={0.4} max={2.5} step={0.05} value={scale} onChange={(e) => setScale(Number(e.target.value))} />
             <button style={{ ...button, color: '#b91c1c', borderColor: '#fecaca', display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}
               onClick={() => { clear(); reset(); }}>
               <Trash2 size={14} /> Remove from scene
