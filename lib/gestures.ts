@@ -23,6 +23,8 @@ export function detectGestures(landmarksList: NormalizedLandmark[][]): Interacti
     return distance(tip, wrist) > distance(pip, wrist) * 1.15;
   };
 
+  const palmSpan = (h: NormalizedLandmark[]) => distance(h[5], h[17]) + distance(h[0], h[9]);
+
   // --- Two hands: pinch both, then change the gap between them to zoom ---
   if (landmarksList.length >= 2) {
     const a = landmarksList[0];
@@ -38,7 +40,12 @@ export function detectGestures(landmarksList: NormalizedLandmark[][]): Interacti
     }
   }
 
-  const landmarks = landmarksList[0];
+  // Drive single-hand gestures from the hand nearest the camera (largest span),
+  // so a flickering second detection cannot swap the reference mid-gesture.
+  const landmarks =
+    landmarksList.length > 1
+      ? [...landmarksList].sort((h1, h2) => palmSpan(h2) - palmSpan(h1))[0]
+      : landmarksList[0];
   const wrist = landmarks[0];
   const thumbTip = landmarks[4];
   const indexTip = landmarks[8];
@@ -46,10 +53,7 @@ export function detectGestures(landmarksList: NormalizedLandmark[][]): Interacti
   const ringTip = landmarks[16];
   const pinkyTip = landmarks[20];
 
-  const indexMCP = landmarks[5];
   const middleMCP = landmarks[9];
-  const ringMCP = landmarks[13];
-  const pinkyMCP = landmarks[17];
   const indexPIP = landmarks[6];
   const middlePIP = landmarks[10];
   const ringPIP = landmarks[14];
@@ -60,34 +64,27 @@ export function detectGestures(landmarksList: NormalizedLandmark[][]): Interacti
   const ringExt = isExtended(ringTip, ringPIP, wrist);
   const pinkyExt = isExtended(pinkyTip, pinkyPIP, wrist);
 
-  const pinchDist = distance(thumbTip, indexTip);
-
-  // Pinch (thumb + index together, other fingers down) -> select. Checked first.
-  if (pinchDist < 0.05 && !middleExt && !ringExt && !pinkyExt) {
+  // Pinch (thumb meets a still-pointing index, other fingers down) -> select.
+  // Requiring the index to stay extended stops a closed fist reading as a click.
+  if (indexExt && !middleExt && !ringExt && !pinkyExt && distance(thumbTip, indexTip) < 0.05) {
     return { type: "SELECT", x: indexTip.x, y: indexTip.y };
   }
 
-  // All four fingers curled, thumb not pinching -> a closed fist or a
-  // cylindrical grip. Tell them apart by how far the fingertips sit from
-  // their knuckles, scaled by palm width so it is distance-invariant.
-  if (!indexExt && !middleExt && !ringExt && !pinkyExt && pinchDist > 0.08) {
+  // Index + middle extended -> rotate / pivot. The fingertip-pair position
+  // orbits the model; the direction the pair points (its angle in camera
+  // space) spins it. Pivot is anchored at the model's feet on the consumer side.
+  if (indexExt && middleExt && !ringExt && !pinkyExt) {
+    const tipX = (indexTip.x + middleTip.x) / 2;
+    const tipY = (indexTip.y + middleTip.y) / 2;
+    const roll = Math.atan2(tipY - wrist.y, tipX - wrist.x);
+    return { type: "ROTATE", dx: tipX, dy: tipY, roll };
+  }
+
+  // Any closed hand (all four fingers curled) -> pan / drag the model.
+  if (!indexExt && !middleExt && !ringExt && !pinkyExt) {
     const palmX = (wrist.x + middleMCP.x) / 2;
     const palmY = (wrist.y + middleMCP.y) / 2;
-    const palmW = Math.max(0.001, distance(indexMCP, pinkyMCP));
-    const curl =
-      (distance(indexTip, indexMCP) +
-        distance(middleTip, middleMCP) +
-        distance(ringTip, ringMCP) +
-        distance(pinkyTip, pinkyMCP)) /
-      (4 * palmW);
-
-    // Tight fist -> pan / drag the model through the scene.
-    if (curl < 0.8) {
-      return { type: "PAN", dx: palmX, dy: palmY };
-    }
-    // Looser cylindrical grip -> rotate / pivot about the feet; twist to spin.
-    const roll = Math.atan2(pinkyMCP.y - indexMCP.y, pinkyMCP.x - indexMCP.x);
-    return { type: "ROTATE", dx: palmX, dy: palmY, roll };
+    return { type: "PAN", dx: palmX, dy: palmY };
   }
 
   // One finger (index) extended -> on-screen cursor.

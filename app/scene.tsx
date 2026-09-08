@@ -248,15 +248,18 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   };
 
   let lastX = 0, lastY = 0;
-  // Cylindrical-grip rotate state.
-  let gripActive = false, prevGripX = 0, prevGripY = 0, prevRoll = 0;
-  // Closed-fist pan state.
-  let panActive = false, prevPanX = 0, prevPanY = 0;
+  // Two-finger rotate/pivot state (smoothed hand position + finger angle).
+  let rotActive = false, rotSX = 0, rotSY = 0, rotSRoll = 0;
+  // Closed-fist pan state (smoothed hand position).
+  let panActive = false, panSX = 0, panSY = 0;
   // Two-hand pinch zoom state.
   let prevZoom = 0;
-  const ROTATE_GAIN = 3.2;   // hand travel across the view -> radians of orbit
-  const ROLL_GAIN = 1.6;     // wrist twist (radians) -> extra spin about the vertical axis
-  const PAN_GAIN = 1.5;      // hand travel across the view -> viewport-heights of pan
+  const SMOOTH = 0.7;        // weight of the newest sample (higher = snappier, noisier)
+  const HOLD_POS = 0.002;    // hand travel below this (normalised) is treated as "held still"
+  const HOLD_ROLL = 0.008;   // finger-angle change below this (radians) is treated as "held still"
+  const ROTATE_GAIN = 3.4;   // finger travel across the view -> radians of orbit
+  const ROLL_GAIN = 2.2;     // finger rotation in camera space -> spin about the vertical axis
+  const PAN_GAIN = 1.6;      // hand travel across the view -> viewport-heights of pan
   const initTracking = async () => {
     const video = document.getElementById('hand-video') as HTMLVideoElement;
     const canvas = document.getElementById('hand-canvas') as HTMLCanvasElement;
@@ -265,21 +268,24 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
       const cursor = document.getElementById('hand-cursor');
 
       // Reset transient state as soon as the driving gesture stops.
-      if (!cmd || cmd.type !== 'ROTATE') { gripActive = false; }
+      if (!cmd || cmd.type !== 'ROTATE') { rotActive = false; }
       if (!cmd || cmd.type !== 'PAN') { panActive = false; }
       if (!cmd || cmd.type !== 'ZOOM') { prevZoom = 0; }
       if (!cmd) { if (cursor) cursor.style.display = 'none'; return; }
 
       if (cmd.type === 'PAN') {
-        // Closed fist -> grab and drag the model across the scene.
+        // Closed fist -> grab and drag the model. A roughly still fist holds it in place.
         const hx = 1 - cmd.dx;   // un-mirror (the webcam feed is flipped)
         const hy = cmd.dy;
         if (!panActive) {
           panActive = true;
-          prevPanX = hx; prevPanY = hy;
+          panSX = hx; panSY = hy;
         } else {
-          panBy((hx - prevPanX) * PAN_GAIN, (hy - prevPanY) * PAN_GAIN);
-          prevPanX = hx; prevPanY = hy;
+          const nx = panSX * (1 - SMOOTH) + hx * SMOOTH;
+          const ny = panSY * (1 - SMOOTH) + hy * SMOOTH;
+          const dx = nx - panSX, dy = ny - panSY;
+          panSX = nx; panSY = ny;
+          if (Math.hypot(dx, dy) >= HOLD_POS) panBy(dx * PAN_GAIN, dy * PAN_GAIN);
         }
         if (cursor) cursor.style.display = 'none';
         return;
@@ -298,23 +304,29 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
       }
 
       if (cmd.type === 'ROTATE') {
+        // Two fingers (index + middle). Move them to orbit/pivot the model;
+        // rotate the finger pair in camera space to spin it. A still hand holds.
         const hx = 1 - cmd.dx;   // un-mirror (the webcam feed is flipped)
         const hy = cmd.dy;
-        if (!gripActive) {
-          gripActive = true;
-          prevGripX = hx; prevGripY = hy; prevRoll = cmd.roll;
+        if (!rotActive) {
+          rotActive = true;
+          rotSX = hx; rotSY = hy; rotSRoll = cmd.roll;
           controls.target.set(0, 0, 0);   // pivot at the feet, between the legs
           controls.update();
           dirty = true;
         } else {
-          let dAz = (hx - prevGripX) * ROTATE_GAIN;
-          const dPol = (hy - prevGripY) * ROTATE_GAIN;
-          let dRoll = cmd.roll - prevRoll;
-          if (dRoll > Math.PI) dRoll -= Math.PI * 2;
-          if (dRoll < -Math.PI) dRoll += Math.PI * 2;
-          dAz += dRoll * ROLL_GAIN;   // twisting the wrist spins the model
-          orbitBy(dAz, dPol);
-          prevGripX = hx; prevGripY = hy; prevRoll = cmd.roll;
+          // Unwrap the finger angle onto the same branch as the running value.
+          let roll = cmd.roll;
+          while (roll - rotSRoll > Math.PI) roll -= Math.PI * 2;
+          while (roll - rotSRoll < -Math.PI) roll += Math.PI * 2;
+          const nx = rotSX * (1 - SMOOTH) + hx * SMOOTH;
+          const ny = rotSY * (1 - SMOOTH) + hy * SMOOTH;
+          const nr = rotSRoll * (1 - SMOOTH) + roll * SMOOTH;
+          const dx = nx - rotSX, dy = ny - rotSY, dr = nr - rotSRoll;
+          rotSX = nx; rotSY = ny; rotSRoll = nr;
+          if (Math.hypot(dx, dy) >= HOLD_POS || Math.abs(dr) >= HOLD_ROLL) {
+            orbitBy(dx * ROTATE_GAIN + dr * ROLL_GAIN, dy * ROTATE_GAIN);
+          }
         }
         if (cursor) cursor.style.display = 'none';
         return;
