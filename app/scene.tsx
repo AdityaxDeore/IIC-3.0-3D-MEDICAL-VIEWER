@@ -235,14 +235,28 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
    offset.multiplyScalar(scale);camera.position.copy(controls.target).add(offset);
    controls.update();trackball.target.copy(controls.target);dirty=true;
   };
+  // Slide camera + target across the view plane. Positive dx drags the model right.
+  const panBy=(dx:number,dy:number)=>{
+   camera.updateMatrixWorld();
+   const dist=camera.position.distanceTo(controls.target);
+   const viewHeight=2*dist*Math.tan(T.MathUtils.degToRad(camera.fov/2));
+   const right=new T.Vector3().setFromMatrixColumn(camera.matrixWorld,0);
+   const up=new T.Vector3().setFromMatrixColumn(camera.matrixWorld,1);
+   const move=new T.Vector3().addScaledVector(right,-dx*viewHeight*camera.aspect).addScaledVector(up,dy*viewHeight);
+   camera.position.add(move);controls.target.add(move);
+   controls.update();trackball.target.copy(controls.target);dirty=true;
+  };
 
   let lastX = 0, lastY = 0;
   // Cylindrical-grip rotate state.
   let gripActive = false, prevGripX = 0, prevGripY = 0, prevRoll = 0;
+  // Closed-fist pan state.
+  let panActive = false, prevPanX = 0, prevPanY = 0;
   // Two-hand pinch zoom state.
   let prevZoom = 0;
   const ROTATE_GAIN = 3.2;   // hand travel across the view -> radians of orbit
   const ROLL_GAIN = 1.6;     // wrist twist (radians) -> extra spin about the vertical axis
+  const PAN_GAIN = 1.5;      // hand travel across the view -> viewport-heights of pan
   const initTracking = async () => {
     const video = document.getElementById('hand-video') as HTMLVideoElement;
     const canvas = document.getElementById('hand-canvas') as HTMLCanvasElement;
@@ -252,8 +266,24 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
 
       // Reset transient state as soon as the driving gesture stops.
       if (!cmd || cmd.type !== 'ROTATE') { gripActive = false; }
+      if (!cmd || cmd.type !== 'PAN') { panActive = false; }
       if (!cmd || cmd.type !== 'ZOOM') { prevZoom = 0; }
       if (!cmd) { if (cursor) cursor.style.display = 'none'; return; }
+
+      if (cmd.type === 'PAN') {
+        // Closed fist -> grab and drag the model across the scene.
+        const hx = 1 - cmd.dx;   // un-mirror (the webcam feed is flipped)
+        const hy = cmd.dy;
+        if (!panActive) {
+          panActive = true;
+          prevPanX = hx; prevPanY = hy;
+        } else {
+          panBy((hx - prevPanX) * PAN_GAIN, (hy - prevPanY) * PAN_GAIN);
+          prevPanX = hx; prevPanY = hy;
+        }
+        if (cursor) cursor.style.display = 'none';
+        return;
+      }
 
       if (cmd.type === 'ZOOM') {
         // Widen the distance between the pinched hands -> go in; narrow it -> pull out.
@@ -295,7 +325,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
         const x = (1 - cmd.x) * window.innerWidth;
         const y = cmd.y * window.innerHeight;
         if (lastX === 0 && lastY === 0) { lastX = x; lastY = y; }
-        else { lastX = lastX * 0.6 + x * 0.4; lastY = lastY * 0.6 + y * 0.4; }
+        else { lastX = lastX * 0.35 + x * 0.65; lastY = lastY * 0.35 + y * 0.65; }
         if (cursor) {
           cursor.style.display = 'block';
           cursor.style.left = `${lastX - 6}px`;

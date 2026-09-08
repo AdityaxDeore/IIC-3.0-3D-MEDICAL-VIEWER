@@ -48,6 +48,7 @@ export function detectGestures(landmarksList: NormalizedLandmark[][]): Interacti
 
   const indexMCP = landmarks[5];
   const middleMCP = landmarks[9];
+  const ringMCP = landmarks[13];
   const pinkyMCP = landmarks[17];
   const indexPIP = landmarks[6];
   const middlePIP = landmarks[10];
@@ -66,12 +67,25 @@ export function detectGestures(landmarksList: NormalizedLandmark[][]): Interacti
     return { type: "SELECT", x: indexTip.x, y: indexTip.y };
   }
 
-  // Cylindrical grip (all four fingers curled round an imaginary cylinder,
-  // thumb not touching the index) -> rotate / pivot about the model's feet.
-  // Move the gripped hand to orbit; twist the wrist to spin.
+  // All four fingers curled, thumb not pinching -> a closed fist or a
+  // cylindrical grip. Tell them apart by how far the fingertips sit from
+  // their knuckles, scaled by palm width so it is distance-invariant.
   if (!indexExt && !middleExt && !ringExt && !pinkyExt && pinchDist > 0.08) {
     const palmX = (wrist.x + middleMCP.x) / 2;
     const palmY = (wrist.y + middleMCP.y) / 2;
+    const palmW = Math.max(0.001, distance(indexMCP, pinkyMCP));
+    const curl =
+      (distance(indexTip, indexMCP) +
+        distance(middleTip, middleMCP) +
+        distance(ringTip, ringMCP) +
+        distance(pinkyTip, pinkyMCP)) /
+      (4 * palmW);
+
+    // Tight fist -> pan / drag the model through the scene.
+    if (curl < 0.8) {
+      return { type: "PAN", dx: palmX, dy: palmY };
+    }
+    // Looser cylindrical grip -> rotate / pivot about the feet; twist to spin.
     const roll = Math.atan2(pinkyMCP.y - indexMCP.y, pinkyMCP.x - indexMCP.x);
     return { type: "ROTATE", dx: palmX, dy: palmY, roll };
   }
