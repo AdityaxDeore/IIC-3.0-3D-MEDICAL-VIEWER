@@ -80,15 +80,14 @@ export class MriEditor {
     document.addEventListener('pointerup', this.onPointerUp);
   };
   
-  // Also, we need to bind pointerdown on the overlay itself to capture dragging the image in ALIGN mode.
   private bindEvents() {
-    this.overlay.addEventListener('pointerdown', (e) => {
+    this.domElement.addEventListener('pointerdown', (e) => {
        if (this.mode === 'align') {
-          // Verify we clicked on the mesh
           const world = this.getPointerWorld(e);
           if (world) {
              const local = this.mesh.worldToLocal(world.clone());
              const geoSize = 1.5;
+             // Check if click is inside the plane boundaries
              if (Math.abs(local.x) <= geoSize/2 && Math.abs(local.y) <= geoSize/2) {
                 this.onPointerDown(null, e);
              }

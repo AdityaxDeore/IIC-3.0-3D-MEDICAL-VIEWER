@@ -255,6 +255,8 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   const animate=()=>{
    if(disposed)return;frame=requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.05),s=latest.current;
    if (mriEditorRef.current) {
+     const isMriMode = modeRef.current === 'mri';
+     mriEditorRef.current.mesh.visible = isMriMode;
      mriEditorRef.current.update();
    }
    const changed=lastState?.visible!==s.visible||lastState?.selected!==s.selected||lastState?.isolate!==s.isolate;
@@ -283,9 +285,11 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
      }else if(lastIsolate){camera.clearViewOffset();fit(s.view,amount);}
     lastIsolate=isolateKey;
    }
-   const camControlsAllowed = modeRef.current !== 'mri' || mriTargetRef.current === 'body';
-   controls.enabled = (!s.isolate) && camControlsAllowed;
-   trackball.enabled = (s.isolate) && camControlsAllowed;
+   // If isolated, always allow trackball so they can inspect the bone freely.
+   // Otherwise, only allow controls if we are not editing the MRI image.
+   const isMriEditing = modeRef.current === 'mri' && mriTargetRef.current === 'mri';
+   controls.enabled = (!s.isolate) && !isMriEditing;
+   trackball.enabled = (s.isolate);
    controls.enableRotate=amount<.8;controls.mouseButtons.LEFT=amount<.8?T.MOUSE.ROTATE:T.MOUSE.PAN;controls.touches.ONE=amount<.8?T.TOUCH.ROTATE:T.TOUCH.PAN;ground.visible=platform.visible=ring.visible=innerRing.visible=amount<.5&&!s.isolate;markers.visible=amount>.75;controls.autoRotate=s.rotate&&!s.isolate&&amount<.4;controls.autoRotateSpeed=.65;
    if(controls.enabled){controls.update();if(controls.autoRotate)dirty=true;}
    if(trackball.enabled){trackball.update();}
