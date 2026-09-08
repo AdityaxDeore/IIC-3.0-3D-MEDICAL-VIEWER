@@ -24,8 +24,10 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
  const onMriUploadRef = useRef<((f: File) => void) | null>(null);
  const mriTargetRef = useRef(mriTarget);
  const transformModeRef = useRef(transformMode);
+ const modeRef = useRef(mode);
  mriTargetRef.current = mriTarget;
  transformModeRef.current = transformMode;
+ modeRef.current = mode;
  latest.current=state;select.current=onSelect;
  useEffect(()=>{
   const el=host.current!;let disposed=false,frame=0,dirty=true,ready=false,lastView='',lastReset=-1,lastIsolate='',layoutKey='',amount=0;
@@ -205,8 +207,9 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
      }else if(lastIsolate){camera.clearViewOffset();fit(s.view,amount);}
     lastIsolate=isolateKey;
    }
-   controls.enabled = (!s.isolate) && (mriTargetRef.current === 'body');
-   trackball.enabled = (s.isolate) && (mriTargetRef.current === 'body');
+   const camControlsAllowed = modeRef.current !== 'mri' || mriTargetRef.current === 'body';
+   controls.enabled = (!s.isolate) && camControlsAllowed;
+   trackball.enabled = (s.isolate) && camControlsAllowed;
    controls.enableRotate=amount<.8;controls.mouseButtons.LEFT=amount<.8?T.MOUSE.ROTATE:T.MOUSE.PAN;controls.touches.ONE=amount<.8?T.TOUCH.ROTATE:T.TOUCH.PAN;ground.visible=platform.visible=ring.visible=innerRing.visible=amount<.5&&!s.isolate;markers.visible=amount>.75;controls.autoRotate=s.rotate&&!s.isolate&&amount<.4;controls.autoRotateSpeed=.65;
    if(controls.enabled){controls.update();if(controls.autoRotate)dirty=true;}
    if(trackball.enabled){trackball.update();}
@@ -214,109 +217,97 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   };animate();
   const contextLost=(e:Event)=>{e.preventDefault();onError('The 3D session was paused by your device. Reload to continue.');};renderer.domElement.addEventListener('webglcontextlost',contextLost);
 
-  let isRotating = false;
-  let isPanning = false;
-  let lastZoom = 0;
+  // Orbit the camera around the current target by spherical deltas (radians).
+  const orbitBy=(dTheta:number,dPhi:number)=>{
+   const offset=camera.position.clone().sub(controls.target);
+   const sph=new T.Spherical().setFromVector3(offset);
+   sph.theta-=dTheta;sph.phi-=dPhi;
+   sph.phi=Math.max(0.05,Math.min(Math.PI-0.05,sph.phi));
+   offset.setFromSpherical(sph);
+   camera.position.copy(controls.target).add(offset);camera.lookAt(controls.target);
+   controls.update();trackball.target.copy(controls.target);dirty=true;
+  };
+  // Dolly the camera toward/away from the target. scale<1 moves closer (zoom in).
+  const dollyBy=(scale:number)=>{
+   const offset=camera.position.clone().sub(controls.target);
+   const nextLen=offset.length()*scale;
+   if(nextLen<controls.minDistance||nextLen>controls.maxDistance)return;
+   offset.multiplyScalar(scale);camera.position.copy(controls.target).add(offset);
+   controls.update();trackball.target.copy(controls.target);dirty=true;
+  };
+
   let lastX = 0, lastY = 0;
-  let dragAnchorX = 0, dragAnchorY = 0, handAnchorX = 0, handAnchorY = 0;
+  // Cylindrical-grip rotate state.
+  let gripActive = false, prevGripX = 0, prevGripY = 0, prevRoll = 0;
+  // Two-hand pinch zoom state.
+  let prevZoom = 0;
+  const ROTATE_GAIN = 3.2;   // hand travel across the view -> radians of orbit
+  const ROLL_GAIN = 1.6;     // wrist twist (radians) -> extra spin about the vertical axis
   const initTracking = async () => {
     const video = document.getElementById('hand-video') as HTMLVideoElement;
     const canvas = document.getElementById('hand-canvas') as HTMLCanvasElement;
     if (!video || !canvas) return;
     await initializeHandTracking(video, canvas, (cmd) => {
       const cursor = document.getElementById('hand-cursor');
-      if (!cursor) return;
-      if (!cmd) {
-        cursor.style.display = 'none';
-        if (isRotating) {
-          isRotating = false;
-          renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 0 }));
+
+      // Reset transient state as soon as the driving gesture stops.
+      if (!cmd || cmd.type !== 'ROTATE') { gripActive = false; }
+      if (!cmd || cmd.type !== 'ZOOM') { prevZoom = 0; }
+      if (!cmd) { if (cursor) cursor.style.display = 'none'; return; }
+
+      if (cmd.type === 'ZOOM') {
+        // Widen the distance between the pinched hands -> go in; narrow it -> pull out.
+        if (prevZoom > 0 && cmd.amount > 0.0001) {
+          let scale = prevZoom / cmd.amount;
+          scale = Math.max(0.9, Math.min(1.1, scale));
+          dollyBy(scale);
         }
-        if (isPanning) {
-          isPanning = false;
-          renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 0 }));
-        }
-        lastZoom = 0;
+        prevZoom = prevZoom === 0 ? cmd.amount : prevZoom * 0.5 + cmd.amount * 0.5;
+        if (cursor) cursor.style.display = 'none';
         return;
       }
 
-      let rawX = 0, rawY = 0;
-      if (cmd.type === 'CURSOR' || cmd.type === 'SELECT') { rawX = cmd.x; rawY = cmd.y; }
-      else if (cmd.type === 'ROTATE' || cmd.type === 'PAN') { rawX = cmd.dx; rawY = cmd.dy; }
-
-      if (rawX !== 0 || rawY !== 0) {
-        let x = (1 - rawX) * window.innerWidth;
-        let y = rawY * window.innerHeight;
-        
-        const isDragging = cmd.type === 'ROTATE' || cmd.type === 'PAN';
-        const wasDragging = isRotating || isPanning;
-        
-        if (isDragging) {
-           if (!wasDragging) {
-             handAnchorX = x; handAnchorY = y;
-             dragAnchorX = lastX || x; dragAnchorY = lastY || y;
-           }
-           const dx = (x - handAnchorX) * 0.25; // Reduce sensitivity to 25%
-           const dy = (y - handAnchorY) * 0.25;
-           x = dragAnchorX + dx;
-           y = dragAnchorY + dy;
+      if (cmd.type === 'ROTATE') {
+        const hx = 1 - cmd.dx;   // un-mirror (the webcam feed is flipped)
+        const hy = cmd.dy;
+        if (!gripActive) {
+          gripActive = true;
+          prevGripX = hx; prevGripY = hy; prevRoll = cmd.roll;
+          controls.target.set(0, 0, 0);   // pivot at the feet, between the legs
+          controls.update();
+          dirty = true;
+        } else {
+          let dAz = (hx - prevGripX) * ROTATE_GAIN;
+          const dPol = (hy - prevGripY) * ROTATE_GAIN;
+          let dRoll = cmd.roll - prevRoll;
+          if (dRoll > Math.PI) dRoll -= Math.PI * 2;
+          if (dRoll < -Math.PI) dRoll += Math.PI * 2;
+          dAz += dRoll * ROLL_GAIN;   // twisting the wrist spins the model
+          orbitBy(dAz, dPol);
+          prevGripX = hx; prevGripY = hy; prevRoll = cmd.roll;
         }
-
-        // Exponential Moving Average for buttery smooth gestures
-        if (lastX === 0 && lastY === 0) { lastX = x; lastY = y; }
-        else { lastX = lastX * 0.65 + x * 0.35; lastY = lastY * 0.65 + y * 0.35; }
+        if (cursor) cursor.style.display = 'none';
+        return;
       }
 
+      // CURSOR / SELECT -> move the on-screen pointer, click on a pinch.
       if (cmd.type === 'CURSOR' || cmd.type === 'SELECT') {
-        cursor.style.display = 'block';
-        cursor.style.left = `${lastX - 6}px`;
-        cursor.style.top = `${lastY - 6}px`;
-        cursor.style.backgroundColor = cmd.type === 'SELECT' ? 'rgba(0, 150, 255, 0.9)' : 'rgba(255, 0, 0, 0.7)';
-        cursor.style.transform = cmd.type === 'SELECT' ? 'scale(1.3)' : 'scale(1)';
-
+        const x = (1 - cmd.x) * window.innerWidth;
+        const y = cmd.y * window.innerHeight;
+        if (lastX === 0 && lastY === 0) { lastX = x; lastY = y; }
+        else { lastX = lastX * 0.6 + x * 0.4; lastY = lastY * 0.6 + y * 0.4; }
+        if (cursor) {
+          cursor.style.display = 'block';
+          cursor.style.left = `${lastX - 6}px`;
+          cursor.style.top = `${lastY - 6}px`;
+          cursor.style.backgroundColor = cmd.type === 'SELECT' ? 'rgba(0, 150, 255, 0.9)' : 'rgba(255, 0, 0, 0.7)';
+          cursor.style.transform = cmd.type === 'SELECT' ? 'scale(1.3)' : 'scale(1)';
+        }
         renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { pointerId: 99, clientX: lastX, clientY: lastY, button: -1, buttons: 0 }));
-        
         if (cmd.type === 'SELECT') {
           renderer.domElement.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1 }));
           renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 0 }));
         }
-      } else if (cmd.type === 'ROTATE') {
-        if (!isRotating) {
-          isRotating = true;
-          renderer.domElement.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1 }));
-        } else {
-          renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1 }));
-        }
-      } else if (cmd.type === 'PAN') {
-        if (!isPanning) {
-          isPanning = true;
-          renderer.domElement.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 2 }));
-        } else {
-          renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 2 }));
-        }
-      } else if (cmd.type === 'ZOOM') {
-        if (lastZoom > 0) {
-          const smoothedAmount = lastZoom * 0.8 + cmd.amount * 0.2;
-          const delta = smoothedAmount - lastZoom;
-          if (Math.abs(delta) > 0.001) {
-            renderer.domElement.dispatchEvent(new WheelEvent('wheel', { deltaY: -delta * 5000 }));
-          }
-          lastZoom = smoothedAmount;
-        } else {
-          lastZoom = cmd.amount;
-        }
-      }
-
-      if (cmd.type !== 'ROTATE' && isRotating) {
-        isRotating = false;
-        renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 0 }));
-      }
-      if (cmd.type !== 'PAN' && isPanning) {
-        isPanning = false;
-        renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 0 }));
-      }
-      if (cmd.type !== 'ZOOM') {
-        lastZoom = 0;
       }
     });
     await startCamera();
