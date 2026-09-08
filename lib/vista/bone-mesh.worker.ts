@@ -1,7 +1,12 @@
 /// <reference lib="webworker" />
 /**
- * Turns a VISTA-3D label volume into a bone surface mesh.
- * Runs entirely off the main thread so the viewer never drops a frame.
+ * Turns a medical volume into a bone surface mesh, off the main thread so the
+ * viewer never drops a frame.
+ *
+ * Two input modes:
+ *   - labels: a VISTA-3D segmentation, meshed by skeletal label id.
+ *   - threshold: a raw CT/MRI volume, meshed by intensity (bone is bright in
+ *     CT: HU >= ~300). No API, no GPU, works offline.
  *
  * Pipeline: crop to the bone bounding box -> downsample to a budget ->
  * signed field -> smooth -> Surface Nets -> world-space transform + tint.
@@ -16,8 +21,13 @@ export interface BoneMeshRequest {
   spacing: [number, number, number];
   /** Longest grid axis after downsampling. Lower = faster, coarser. */
   maxDim?: number;
-  /** Restrict to these labels. Defaults to every skeletal label. */
+  /** labels mode: restrict to these ids. Defaults to every skeletal label. */
   labels?: number[];
+  /** threshold mode: keep voxels whose real value is >= this (Hounsfield units). */
+  threshold?: number;
+  /** Real value = stored * sclSlope + sclInter. */
+  sclSlope?: number;
+  sclInter?: number;
 }
 
 export interface BoneMeshResponse {
@@ -55,32 +65,47 @@ self.onmessage = (event: MessageEvent<BoneMeshRequest>) => {
     const { data, kind, dims, spacing } = event.data;
     const maxDim = event.data.maxDim ?? 224;
     const wanted = event.data.labels ?? BONE_IDS;
+    const threshold = event.data.threshold;
+    const ctMode = typeof threshold === 'number';
+    const slope = event.data.sclSlope ?? 1;
+    const inter = event.data.sclInter ?? 0;
 
     const src = viewOf(data, kind);
     const [nx, ny, nz] = dims;
 
-    // Fast membership test over the 0..255 label range.
+    // labels mode: membership over the 0..255 label range.
     const isBone = new Uint8Array(256);
-    for (const id of wanted) if (id >= 0 && id < 256) isBone[id] = 1;
+    if (!ctMode) for (const id of wanted) if (id >= 0 && id < 256) isBone[id] = 1;
+    // threshold mode: keep voxels at or above the requested Hounsfield value.
+    const hit = ctMode
+      ? (v: number) => v * slope + inter >= (threshold as number)
+      : (v: number) => v > 0 && v < 256 && isBone[v] === 1;
 
-    post({ ok: false, stage: 'Scanning labels', percent: 15 });
+    post({ ok: false, stage: ctMode ? 'Thresholding volume' : 'Scanning labels', percent: 15 });
 
     // Pass 1: bounding box + per-label counts.
     const counts = new Map<number, number>();
+    let hitCount = 0;
     let minX = nx, minY = ny, minZ = nz, maxX = -1, maxY = -1, maxZ = -1;
     for (let z = 0, i = 0; z < nz; ++z) {
       for (let y = 0; y < ny; ++y) {
         for (let x = 0; x < nx; ++x, ++i) {
           const v = src[i];
-          if (v <= 0 || v > 255 || !isBone[v]) continue;
-          counts.set(v, (counts.get(v) ?? 0) + 1);
+          if (!hit(v)) continue;
+          ++hitCount;
+          if (!ctMode) counts.set(v, (counts.get(v) ?? 0) + 1);
           if (x < minX) minX = x; if (x > maxX) maxX = x;
           if (y < minY) minY = y; if (y > maxY) maxY = y;
           if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
         }
       }
     }
-    if (maxX < 0) throw new Error('The segmentation contains no skeletal labels.');
+    if (ctMode) counts.set(-1, hitCount);
+    if (maxX < 0) {
+      throw new Error(ctMode
+        ? `No voxels at or above ${threshold} HU. Lower the threshold, or this may not be a CT scan.`
+        : 'The segmentation contains no skeletal labels.');
+    }
 
     // Pad by one voxel so the surface closes cleanly at the crop edge.
     minX = Math.max(0, minX - 1); minY = Math.max(0, minY - 1); minZ = Math.max(0, minZ - 1);
@@ -110,12 +135,12 @@ self.onmessage = (event: MessageEvent<BoneMeshRequest>) => {
         let i = z * nx * ny + y * nx + minX;
         for (let x = minX; x <= maxX; ++x, ++i) {
           const v = src[i];
-          if (v <= 0 || v > 255 || !isBone[v]) continue;
+          if (!hit(v)) continue;
           const gxi = Math.floor((x - minX) / stride) + 1;
           const g = gzi * gx * gy + gyi * gx + gxi;
           field[g] = -1;
           // A lesion always wins the tint so the injury stays visible.
-          if (labelAt[g] === 0 || v === LESION_ID) labelAt[g] = v;
+          if (!ctMode && (labelAt[g] === 0 || v === LESION_ID)) labelAt[g] = v;
         }
       }
     }

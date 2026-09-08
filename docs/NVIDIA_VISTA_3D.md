@@ -33,16 +33,21 @@ npm run dev       # terminal 2 — app on :3016
 
 Open the app and click **CT/MRI → 3D bones** (bottom left).
 
-### Three ways in
+### Ways in
 
 | Button | Needs | What it does |
 |---|---|---|
-| **Load mask (no API)** | nothing | Meshes a segmentation you already have. **Works today**, no NIM, no keys. |
+| **Reconstruct bones from CT (offline)** | nothing | Thresholds a raw CT volume (bone is bright: HU ≥ ~300, slider-adjustable) straight into a mesh, in a worker. **The default** — no API, no GPU, no keys. CT only; MRI bone is dark and needs the NIM. |
+| **Load mask (no API)** | nothing | Meshes a segmentation you already have. |
 | **Segment & build** | a reachable NIM | Sends a public scan URL to VISTA-3D, meshes the bones it returns. |
 | **Upload scan…** | a reachable NIM | Uploads a local volume, serves it back at a URL the NIM can fetch, then segments. |
 
-Input volumes must be **NIfTI (`.nii` / `.nii.gz`) or NRRD** — VISTA-3D takes 3D
-volumes, not 2D PNG/JPEG slices.
+Input volumes must be **NIfTI (`.nii` / `.nii.gz`) or NRRD** — 3D volumes, not
+2D PNG/JPEG slices.
+
+The offline CT path exists because NVIDIA retired the hosted endpoint (see
+below); it needs no NVIDIA anything. The VISTA-3D paths add accurate per-bone
+labels and MRI support once a NIM is reachable.
 
 ### Standing up the NIM
 

@@ -47,8 +47,8 @@ export function useBoneReconstruction() {
     setState(IDLE);
   }, []);
 
-  /** Hand a label volume (already segmented) to the worker. */
-  const meshFromVolume = useCallback(async (raw: ArrayBuffer, quality: number) => {
+  /** Hand a volume to the worker. `threshold` (HU) switches it to raw-CT mode. */
+  const meshFromVolume = useCallback(async (raw: ArrayBuffer, quality: number, threshold?: number) => {
     setState((s) => ({ ...s, stage: 'Reading volume', percent: 8 }));
     const volume = await parseNifti(raw);
 
@@ -81,7 +81,10 @@ export function useBoneReconstruction() {
           indices: message.indices,
           found: message.counts
             .sort((a, b) => b[1] - a[1])
-            .map(([id, n]) => `${BONE_LABELS[id] ?? `label ${id}`} · ${n.toLocaleString()} voxels`),
+            .map(([id, n]) =>
+              id === -1
+                ? `bone (CT threshold) · ${n.toLocaleString()} voxels`
+                : `${BONE_LABELS[id] ?? `label ${id}`} · ${n.toLocaleString()} voxels`),
           size: message.size,
           triangles: message.indices.length / 3,
           ms: message.ms,
@@ -89,7 +92,12 @@ export function useBoneReconstruction() {
       };
       worker.onerror = (e) => { worker.terminate(); reject(new Error(e.message || 'Worker failed.')); };
       worker.postMessage(
-        { data: bytes, kind, dims: volume.dims, spacing: volume.spacing, maxDim: quality },
+        {
+          data: bytes, kind, dims: volume.dims, spacing: volume.spacing, maxDim: quality,
+          ...(typeof threshold === 'number'
+            ? { threshold, sclSlope: volume.sclSlope, sclInter: volume.sclInter }
+            : {}),
+        },
         [bytes],
       );
     });
@@ -135,6 +143,23 @@ export function useBoneReconstruction() {
     }
   }, [meshFromVolume]);
 
+  /**
+   * Offline path — no API, no GPU. Threshold a raw CT volume (bone is bright:
+   * HU >= ~300) straight into a mesh. This is the fallback while NVIDIA's hosted
+   * VISTA-3D endpoint is retired.
+   */
+  const ctFromFile = useCallback(async (file: File, quality = 224, threshold = 300) => {
+    setState({ busy: true, stage: 'Reading scan', percent: 3, error: '', result: null });
+    try {
+      const result = await meshFromVolume(await file.arrayBuffer(), quality, threshold);
+      setState({ busy: false, stage: 'Done', percent: 100, error: '', result });
+      return result;
+    } catch (error) {
+      setState({ busy: false, stage: '', percent: 0, error: error instanceof Error ? error.message : 'Failed.', result: null });
+      return null;
+    }
+  }, [meshFromVolume]);
+
   /** Upload a local scan so VISTA-3D can fetch it, then segment. */
   const segmentFromFile = useCallback(async (file: File, quality = 224) => {
     setState({ busy: true, stage: 'Uploading scan', percent: 2, error: '', result: null });
@@ -152,5 +177,5 @@ export function useBoneReconstruction() {
     }
   }, [segmentFromUrl]);
 
-  return { state, reset, segmentFromUrl, segmentFromFile, meshFromFile };
+  return { state, reset, segmentFromUrl, segmentFromFile, meshFromFile, ctFromFile };
 }

@@ -15,6 +15,7 @@ export default function BoneReconstructionPanel() {
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState('');
   const [quality, setQuality] = useState(224);
+  const [hu, setHu] = useState(300);
   const [opacity, setOpacity] = useState(1);
   const [scale, setScale] = useState(1);
   const [mounted, setMounted] = useState(false);
@@ -22,8 +23,9 @@ export default function BoneReconstructionPanel() {
   const materialRef = useRef<T.MeshStandardMaterial | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const maskRef = useRef<HTMLInputElement>(null);
+  const ctRef = useRef<HTMLInputElement>(null);
 
-  const { state, reset, segmentFromUrl, segmentFromFile, meshFromFile } = useBoneReconstruction();
+  const { state, reset, segmentFromUrl, segmentFromFile, meshFromFile, ctFromFile } = useBoneReconstruction();
 
   const clear = useCallback(() => {
     const bridge = getSceneBridge();
@@ -145,11 +147,31 @@ export default function BoneReconstructionPanel() {
       </div>
 
       <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* Offline path — primary, because NVIDIA retired the hosted endpoint. */}
         <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.45 }}>
-          NVIDIA VISTA-3D segments a CT/MRI volume; the skeletal labels are turned
-          into a mesh in a worker and dropped into this scene.
+          Reconstruct bones straight from a CT volume (<code>.nii/.nii.gz/.nrrd</code>).
+          Runs in a worker, no API or GPU needed.
         </div>
+        <button style={primary} disabled={state.busy} onClick={() => ctRef.current?.click()}>
+          Reconstruct bones from CT (offline)
+        </button>
+        <input
+          ref={ctRef} type="file" accept=".nii,.gz,.nrrd" hidden
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) run(() => ctFromFile(f, quality, hu)); e.target.value = ''; }}
+        />
+        <label style={{ fontSize: 11, color: '#475569', display: 'flex', justifyContent: 'space-between' }}>
+          <span>Bone threshold</span><span style={{ fontWeight: 700 }}>{hu} HU</span>
+        </label>
+        <input
+          type="range" min={120} max={600} step={20} value={hu}
+          disabled={state.busy} onChange={(e) => setHu(Number(e.target.value))}
+        />
 
+        <details>
+          <summary style={{ cursor: 'pointer', fontSize: 11, color: '#64748b', fontWeight: 600 }}>
+            NVIDIA VISTA-3D (needs a local NIM — hosted API retired 2026-08-25)
+          </summary>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
         <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>
           Public scan URL (.nii.gz / .nrrd)
         </label>
@@ -188,6 +210,8 @@ export default function BoneReconstructionPanel() {
           ref={maskRef} type="file" accept=".nii,.gz,.nrrd" hidden
           onChange={(e) => { const f = e.target.files?.[0]; if (f) run(() => meshFromFile(f, quality)); e.target.value = ''; }}
         />
+          </div>
+        </details>
 
         <label style={{ fontSize: 11, color: '#475569', display: 'flex', justifyContent: 'space-between' }}>
           <span>Mesh detail</span><span style={{ fontWeight: 700 }}>{quality}</span>

@@ -7,8 +7,11 @@ export interface Volume {
   dims: [number, number, number];
   /** Voxel spacing in mm. */
   spacing: [number, number, number];
-  /** Label per voxel, x fastest. */
+  /** Label per voxel (segmentation) or raw intensity (CT/MRI), x fastest. */
   data: Uint8Array | Int16Array | Uint16Array | Int32Array | Float32Array;
+  /** Real value = stored * sclSlope + sclInter (e.g. Hounsfield units for CT). */
+  sclSlope: number;
+  sclInter: number;
 }
 
 const NIFTI1_HEADER_SIZE = 348;
@@ -45,6 +48,8 @@ export async function parseNifti(input: ArrayBuffer): Promise<Volume> {
   const sy = Math.abs(view.getFloat32(84, little)) || 1;
   const sz = Math.abs(view.getFloat32(88, little)) || 1;
   const offset = Math.max(NIFTI1_HEADER_SIZE + 4, Math.round(view.getFloat32(108, little)) || 352);
+  const sclSlope = view.getFloat32(112, little) || 1;
+  const sclInter = view.getFloat32(116, little) || 0;
 
   const count = nx * ny * nz;
   const bytes = buffer.byteLength - offset;
@@ -66,5 +71,5 @@ export async function parseNifti(input: ArrayBuffer): Promise<Volume> {
   const data = make();
   if (data.length < count) throw new Error('NIfTI volume is truncated.');
 
-  return { dims: [nx, ny, nz], spacing: [sx, sy, sz], data };
+  return { dims: [nx, ny, nz], spacing: [sx, sy, sz], data, sclSlope, sclInter };
 }
