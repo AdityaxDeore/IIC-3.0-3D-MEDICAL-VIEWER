@@ -44,6 +44,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
   });
   transformControls.addEventListener('change', () => { dirty = true; });
   scene.add(transformControls);
+  scene.add(camera);
   const mriTextureRef = { current: null as T.Texture | null };
   onMriUploadRef.current = (file: File) => {
     const url = URL.createObjectURL(file);
@@ -52,8 +53,8 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
     const geo = new T.PlaneGeometry(1.5, 1.5);
     const mat = new T.MeshBasicMaterial({ map: texture, side: T.DoubleSide, transparent: true, opacity: 0.7, depthWrite: false });
     const mesh = new T.Mesh(geo, mat);
-    mesh.position.set(0, 0.85, 0);
-    scene.add(mesh);
+    mesh.position.set(0, 0, -3); // Attach 3 units in front of the camera
+    camera.add(mesh);
     transformControls.attach(mesh);
     dirty = true;
   };
