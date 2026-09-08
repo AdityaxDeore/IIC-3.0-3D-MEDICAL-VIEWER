@@ -20,7 +20,7 @@ export function detectGestures(landmarksList: NormalizedLandmark[][]): Interacti
   if (!landmarksList || landmarksList.length === 0) return null;
 
   const isExtended = (tip: NormalizedLandmark, pip: NormalizedLandmark, wrist: NormalizedLandmark) => {
-    return distance(tip, wrist) > distance(pip, wrist);
+    return distance(tip, wrist) > distance(pip, wrist) * 1.15;
   };
 
   if (landmarksList.length >= 2) {
