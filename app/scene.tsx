@@ -45,14 +45,16 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
  modeRef.current = mode;
  latest.current=state;select.current=onSelect;
 
- const updateTransformMode = (m: "translate" | "rotate" | "scale") => {
-   setTransformMode(m);
-   transformModeRef.current = m;
-   if (transformControlsRef.current) {
-     transformControlsRef.current.setMode(m);
-   }
-   dirtyRef.current = true;
- };
+  const updateTransformMode = (m: "translate" | "rotate" | "scale") => {
+    // Map legacy voice commands to new Canva-style modes
+    const targetMode = m === 'scale' || m === 'rotate' ? 'resize' : 'align';
+    setMriEditMode(targetMode);
+    mriEditModeRef.current = targetMode;
+    if (mriEditorRef.current) {
+      mriEditorRef.current.mode = targetMode;
+    }
+    dirtyRef.current = true;
+  };
 
   const autoAlignToBone = () => {
     if (mriEditorRef.current && mriEditorRef.current.mesh) {
