@@ -21,6 +21,7 @@ export interface SceneActions {
   setMode: (mode: 'standard' | 'exoskeleton' | 'mri' | 'hidden') => void;
   setMriTarget: (target: 'body' | 'mri') => void;
   autoAlignToBone: () => void;
+  takeSnapshot?: () => Promise<string>;
 }
 
 interface Props {atlas:Atlas;state:SceneState;onSelect:(id:string)=>void;onProgress:(n:number)=>void;onError:(s:string)=>void;onMriUpload:(file:File)=>void;spawnToolRef:React.MutableRefObject<((tool:'screw'|'rod'|'clip')=>void)|null>;sceneActionsRef?:React.MutableRefObject<SceneActions|null>}
@@ -92,6 +93,8 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
     }
   };
 
+  const snapshotRequestRef = useRef<((dataUrl: string) => void) | null>(null);
+
   if (sceneActionsRef) {
     sceneActionsRef.current = {
       setTransformMode: updateTransformMode,
@@ -106,6 +109,12 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
         dirtyRef.current = true;
       },
       autoAlignToBone,
+      takeSnapshot: () => {
+         return new Promise((resolve) => {
+            snapshotRequestRef.current = resolve;
+            dirtyRef.current = true;
+         });
+      }
     };
   }
  useEffect(()=>{
@@ -307,7 +316,14 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
    controls.enableRotate=amount<.8;controls.mouseButtons.LEFT=amount<.8?T.MOUSE.ROTATE:T.MOUSE.PAN;controls.touches.ONE=amount<.8?T.TOUCH.ROTATE:T.TOUCH.PAN;ground.visible=platform.visible=ring.visible=innerRing.visible=amount<.5&&!s.isolate;markers.visible=amount>.75;controls.autoRotate=s.rotate&&!s.isolate&&amount<.4;controls.autoRotateSpeed=.65;
    if(controls.enabled){controls.update();if(controls.autoRotate)dirty=true;}
    if(trackball.enabled){trackball.update();}
-   if(dirty || dirtyRef.current){renderer.render(scene,camera);targets=[];if(amount>.45){const hasSolid=atlas.parts.some((p,i)=>p.system!=='integumentary'&&data[i*4+3]>.5);atlas.parts.forEach((p,i)=>{if(data[i*4+3]<.5||(hasSolid&&p.system==='integumentary'))return;let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;for(let corner=0;corner<8;corner++){projected.set(p.bounds[(corner&1)?1:0][0]+data[i*4],p.bounds[(corner&2)?1:0][1]+data[i*4+1],p.bounds[(corner&4)?1:0][2]+data[i*4+2]).project(camera);const x=(projected.x+1)*el.clientWidth/2,y=(1-projected.y)*el.clientHeight/2;left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);}projected.copy(centers[i]).add(new T.Vector3(data[i*4],data[i*4+1],data[i*4+2])).project(camera);if(projected.z< -1||projected.z>1)return;targets.push({index:i,x:(projected.x+1)*el.clientWidth/2,y:(1-projected.y)*el.clientHeight/2,left,right,top,bottom});});}dirty=false;dirtyRef.current=false;}
+   if(dirty || dirtyRef.current){
+    renderer.render(scene,camera);
+    if (snapshotRequestRef.current) {
+       const dataUrl = renderer.domElement.toDataURL('image/jpeg', 0.85);
+       snapshotRequestRef.current(dataUrl);
+       snapshotRequestRef.current = null;
+    }
+    targets=[];if(amount>.45){const hasSolid=atlas.parts.some((p,i)=>p.system!=='integumentary'&&data[i*4+3]>.5);atlas.parts.forEach((p,i)=>{if(data[i*4+3]<.5||(hasSolid&&p.system==='integumentary'))return;let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;for(let corner=0;corner<8;corner++){projected.set(p.bounds[(corner&1)?1:0][0]+data[i*4],p.bounds[(corner&2)?1:0][1]+data[i*4+1],p.bounds[(corner&4)?1:0][2]+data[i*4+2]).project(camera);const x=(projected.x+1)*el.clientWidth/2,y=(1-projected.y)*el.clientHeight/2;left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);}projected.copy(centers[i]).add(new T.Vector3(data[i*4],data[i*4+1],data[i*4+2])).project(camera);if(projected.z< -1||projected.z>1)return;targets.push({index:i,x:(projected.x+1)*el.clientWidth/2,y:(1-projected.y)*el.clientHeight/2,left,right,top,bottom});});}dirty=false;dirtyRef.current=false;}
   };animate();
   const contextLost=(e:Event)=>{e.preventDefault();onError('The 3D session was paused by your device. Reload to continue.');};renderer.domElement.addEventListener('webglcontextlost',contextLost);
 

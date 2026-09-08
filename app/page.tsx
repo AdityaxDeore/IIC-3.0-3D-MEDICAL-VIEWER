@@ -9,10 +9,11 @@ import {Switch} from '@/components/ui/switch';
 import {Sheet,SheetContent,SheetTitle,SheetDescription} from '@/components/ui/sheet';
 import {Combobox,ComboboxInput,ComboboxContent,ComboboxList,ComboboxItem,ComboboxEmpty} from '@/components/ui/combobox';
 import AnatomyScene, { type SceneActions } from './scene';
+import { AIAssistant } from './ai-assistant';
 import {DEFAULT_VISIBLE,SYSTEMS,EXPLANATIONS,explanation,type Atlas,type Concept,type SceneState,type SystemId,type View} from './anatomy';
 import {initVoiceCommands, startVoice, stopVoice, type VoiceCommand} from '@/lib/voice-commands';
 import { playIsolateSound } from '@/lib/audio-manager';
-import {classifyMRI, ClassificationResult} from '../lib/ai';
+import { classifyMRI, ClassificationResult } from '../lib/ai';
 import BoneReconstructionPanel from '@/components/vista/BoneReconstructionPanel';
 
 const initial:SceneState={explode:0,visible:DEFAULT_VISIBLE,selected:[],isolate:false,view:'three-quarter',rotate:false,reset:0};
@@ -146,6 +147,9 @@ export default function Home(){
          </div>
        </div>
      )}
+
+      {/* Gemini AI Assistant Overlay */}
+      <AIAssistant sceneActionsRef={sceneActionsRef} />
 
   <header className="identity"><div className="eyebrow"><span className="status-dot"/> INTERACTIVE ANATOMY</div><h1>Human Atlas<Badge variant="outline" className="edition">3D</Badge></h1><div className="identity-meta">{atlas?atlas.parts.length.toLocaleString():'2,234'} modeled pieces <span>·</span> BodyParts3D</div></header>
   <nav className="top-actions" aria-label="Explorer panels"><Button variant="ghost" className={panel==='search'?'active':''} onClick={()=>openPanel('search')} aria-label="Search anatomy"><Search size={18}/><span>Find a structure</span><kbd>/</kbd></Button><Button variant="ghost" className="icon-button" aria-label="About this atlas" onClick={()=>{setDetails(false);setPanel(null);setAbout(true);}}><Info size={18}/></Button><Button variant="ghost" className={`icon-button ${listening?'active':''}`} onClick={toggleVoice} aria-label="Voice commands">{listening?<MicOff size={18}/>:<Mic size={18}/>}</Button></nav>
