@@ -12,6 +12,7 @@ import {SYSTEMS,type Atlas,type SceneState} from './anatomy';
 import { initializeHandTracking, startCamera, startTracking } from '../lib/hand-tracking';
 import { InteractionCommand } from '../lib/gestures';
 import { playConfirmationSound, playGrabSound, playSnapSound } from '@/lib/audio-manager';
+import { MriEditor } from '../lib/mri-editor';
 
 import { Maximize2, Minimize2 } from 'lucide-react';
 
@@ -28,44 +29,80 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
  const [mode, setMode] = useState<"standard" | "exoskeleton" | "mri" | "hidden">("standard");
  const [mriTarget, setMriTarget] = useState<"body" | "mri">("mri");
  const [transformMode, setTransformMode] = useState<"translate" | "rotate" | "scale">("translate");
+ const [mriEditMode, setMriEditMode] = useState<"resize" | "align">("resize");
  const [cameraExpanded, setCameraExpanded] = useState(false);
- const onMriUploadRef = useRef<((f: File) => void) | null>(null);
+ const onMriUploadRef = useRef<((f: File | string) => void) | null>(null);
  const mriTargetRef = useRef(mriTarget);
  const transformModeRef = useRef(transformMode);
+ const mriEditModeRef = useRef(mriEditMode);
  const modeRef = useRef(mode);
  const transformControlsRef = useRef<TransformControls | null>(null);
+ const mriEditorRef = useRef<MriEditor | null>(null);
  const dirtyRef = useRef<boolean>(true);
  mriTargetRef.current = mriTarget;
  transformModeRef.current = transformMode;
+ mriEditModeRef.current = mriEditMode;
  modeRef.current = mode;
  latest.current=state;select.current=onSelect;
 
- const autoAlignToBone = () => {
-   if (transformControlsRef.current?.object) {
-     transformControlsRef.current.object.scale.set(0.65, 0.65, 0.65);
-     transformControlsRef.current.object.position.set(0, 0, -2);
-     dirtyRef.current = true;
-     playConfirmationSound();
+ const updateTransformMode = (m: "translate" | "rotate" | "scale") => {
+   setTransformMode(m);
+   transformModeRef.current = m;
+   if (transformControlsRef.current) {
+     transformControlsRef.current.setMode(m);
    }
+   dirtyRef.current = true;
  };
 
- if (sceneActionsRef) {
-   sceneActionsRef.current = {
-     setTransformMode: (m) => {
-       setTransformMode(m);
-       dirtyRef.current = true;
-     },
-     setMode: (m) => {
-       setMode(m);
-       dirtyRef.current = true;
-     },
-     setMriTarget: (t) => {
-       setMriTarget(t);
-       dirtyRef.current = true;
-     },
-     autoAlignToBone,
-   };
- }
+  const autoAlignToBone = () => {
+    if (mriEditorRef.current && mriEditorRef.current.mesh) {
+      const femurRightIdx = atlas.parts.findIndex(p => p.id === 'FMA24474');
+      const femurLeftIdx = atlas.parts.findIndex(p => p.id === 'FMA24475');
+      // The user specified the Left Femoral Neck!
+      const targetIdx = femurLeftIdx;
+      
+      if (targetIdx >= 0) {
+         const bounds = atlas.parts[targetIdx].bounds;
+         const min = new T.Vector3().fromArray(bounds[0]);
+         const max = new T.Vector3().fromArray(bounds[1]);
+         const center = min.clone().add(max).multiplyScalar(0.5);
+         const length = max.y - min.y;
+         
+         const m = mriEditorRef.current.mesh;
+         // Custom position to fit the LEFT femur properly
+         m.position.copy(center);
+         m.position.z += 0.05; // Slightly forward
+         m.position.y += 0.08; // Adjust up slightly to cover the neck
+         m.position.x += 0.05; // Adjust right slightly
+         
+         const targetScale = (length * 1.5) / 1.5; 
+         m.scale.set(targetScale * 1.4, targetScale * 1.4, 1); // Scale up for wider context
+         
+         // Inward angle for left femur
+         m.rotation.set(0, 0, -0.15);
+         
+         dirtyRef.current = true;
+         playConfirmationSound();
+      }
+    }
+  };
+
+  if (sceneActionsRef) {
+    sceneActionsRef.current = {
+      setTransformMode: updateTransformMode,
+      setMode: (m) => {
+        setMode(m);
+        modeRef.current = m;
+        dirtyRef.current = true;
+      },
+      setMriTarget: (t) => {
+        setMriTarget(t);
+        mriTargetRef.current = t;
+        dirtyRef.current = true;
+      },
+      autoAlignToBone,
+    };
+  }
  useEffect(()=>{
   const el=host.current!;let disposed=false,frame=0,dirty=true,ready=false,lastView='',lastReset=-1,lastIsolate='',layoutKey='',amount=0;
   let lastState:SceneState|null=null;
@@ -78,24 +115,10 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   const trackball=new TrackballControls(camera,renderer.domElement);
   trackball.rotateSpeed = 4.0; trackball.zoomSpeed = 1.2; trackball.panSpeed = 0.8; trackball.addEventListener('change',()=>{dirty=true;});
   camera.position.set(1.4,1.05,3.6);controls.target.set(0,.85,0);controls.enableDamping=true;controls.dampingFactor=.085;controls.minDistance=.07;controls.maxDistance=40;controls.minPolarAngle=0;controls.maxPolarAngle=Math.PI;controls.addEventListener('change',()=>{dirty=true;});
-  const transformControls = new TransformControls(camera, renderer.domElement);
-  transformControlsRef.current = transformControls;
-  transformControls.size = 2.0;
-  transformControls.addEventListener('dragging-changed', (event) => { 
-      controls.enabled = !event.value && !latest.current.isolate; 
-      trackball.enabled = !event.value && latest.current.isolate; 
-      if (event.value) {
-        playGrabSound();
-      } else {
-        playSnapSound();
-      }
-  });
-  transformControls.addEventListener('change', () => { dirty = true; dirtyRef.current = true; });
-  scene.add(transformControls);
   scene.add(camera);
   const mriTextureRef = { current: null as T.Texture | null };
-  onMriUploadRef.current = (file: File) => {
-    const url = URL.createObjectURL(file);
+  onMriUploadRef.current = (file: File | string) => {
+    const url = typeof file === 'string' ? file : URL.createObjectURL(file);
     const texture = new T.TextureLoader().load(url, () => { dirty = true; });
     mriTextureRef.current = texture;
     const geo = new T.PlaneGeometry(1.5, 1.5);
@@ -103,10 +126,20 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
     const mesh = new T.Mesh(geo, mat);
     mesh.position.set(0.6, 1.0, 0.4); // Placed in the physical scene next to the body
     scene.add(mesh);
-    transformControls.attach(mesh);
+    const overlayElement = document.getElementById('mri-editor-overlay');
+    if (overlayElement) {
+      if (mriEditorRef.current) mriEditorRef.current.dispose();
+      mriEditorRef.current = new MriEditor(mesh, camera, renderer.domElement, overlayElement);
+    }
     dirty = true;
   };
   (window as any).mriTextureRef = mriTextureRef;
+   // Load default image for the simulation if none loaded yet
+   setTimeout(() => {
+     if (onMriUploadRef.current && !mriTextureRef.current) {
+       onMriUploadRef.current('/default-mri.webp');
+     }
+   }, 500);
   // Additive bridge for opt-in features (the VISTA-3D bone reconstruction).
   // It only exposes the scene and a redraw request; nothing here changes how
   // the viewer itself builds, animates or renders.
@@ -218,17 +251,8 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   const clock=new T.Clock();let lastExtent=-1;
   const animate=()=>{
    if(disposed)return;frame=requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.05),s=latest.current;
-   if (transformControls) {
-     const isMriActive = mriTargetRef.current === 'mri';
-     if (transformControls.enabled !== isMriActive && transformControls.object) {
-       transformControls.enabled = isMriActive;
-       transformControls.visible = isMriActive;
-       dirty = true;
-     }
-     if (transformControls.mode !== transformModeRef.current) {
-       transformControls.setMode(transformModeRef.current);
-       dirty = true;
-     }
+   if (mriEditorRef.current) {
+     mriEditorRef.current.update();
    }
    const changed=lastState?.visible!==s.visible||lastState?.selected!==s.selected||lastState?.isolate!==s.isolate;
    const moving=Math.abs(amount-s.explode)>.0001;
@@ -397,10 +421,11 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
           cursor.style.backgroundColor = cmd.type === 'SELECT' ? 'rgba(0, 150, 255, 0.9)' : 'rgba(255, 0, 0, 0.7)';
           cursor.style.transform = cmd.type === 'SELECT' ? 'scale(1.3)' : 'scale(1)';
         }
-        renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { pointerId: 99, clientX: lastX, clientY: lastY, button: -1, buttons: 0 }));
+        const target = document.elementFromPoint(lastX, lastY) || renderer.domElement;
+        target.dispatchEvent(new PointerEvent('pointermove', { pointerId: 99, clientX: lastX, clientY: lastY, button: -1, buttons: 0 }));
         if (cmd.type === 'SELECT') {
-          renderer.domElement.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1 }));
-          renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 0 }));
+          target.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1 }));
+          target.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 0 }));
         }
       }
     });
@@ -409,7 +434,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   };
   initTracking();
 
-  return()=>{disposed=true;abort.abort();cancelAnimationFrame(frame);observer.disconnect();controls.dispose();transformControlsRef.current=null;transformControls.dispose();geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());scene.traverse(o=>{if(o instanceof T.Mesh&&!geometries.includes(o.geometry)){o.geometry.dispose();const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>m.dispose());}});env.dispose();partTexture.dispose();selectionTexture.dispose();markerGeometry.dispose();markerMaterial.dispose();hover.remove();renderer.dispose();renderer.domElement.remove();};
+  return()=>{disposed=true;abort.abort();cancelAnimationFrame(frame);observer.disconnect();controls.dispose();if(mriEditorRef.current)mriEditorRef.current.dispose();geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());scene.traverse(o=>{if(o instanceof T.Mesh&&!geometries.includes(o.geometry)){o.geometry.dispose();const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>m.dispose());}});env.dispose();partTexture.dispose();selectionTexture.dispose();markerGeometry.dispose();markerMaterial.dispose();hover.remove();renderer.dispose();renderer.domElement.remove();};
  },[atlas]);
 
  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -422,6 +447,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
  return (
   <>
    <div className="scene" ref={host}/>
+   <div id="mri-editor-overlay" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 1000 }}></div>
    
    <div style={{ position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', zIndex: 1002, display: 'flex', gap: '8px', background: 'rgba(255,255,255,0.8)', padding: '6px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
     <button onClick={() => setMode('standard')} style={{background: mode==='standard'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>Standard</button>
@@ -439,34 +465,50 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
         <button onClick={() => setMriTarget('mri')} id="btn-control-mri" style={{background: '#e2e8f0', padding: '4px 10px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', border: mriTarget === 'mri' ? '2px solid #3b82f6' : '2px solid transparent'}}>Control MRI</button>
       </div>
       {mriTarget === 'mri' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '5px' }}>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={() => setTransformMode('translate')} style={{background: '#e2e8f0', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: transformMode === 'translate' ? '2px solid #3b82f6' : '2px solid transparent'}}>Move</button>
-            <button onClick={() => setTransformMode('rotate')} style={{background: '#e2e8f0', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: transformMode === 'rotate' ? '2px solid #3b82f6' : '2px solid transparent'}}>Rotate</button>
-            <button onClick={() => setTransformMode('scale')} style={{background: '#e2e8f0', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: transformMode === 'scale' ? '2px solid #3b82f6' : '2px solid transparent'}}>Scale</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '5px', width: '100%' }}>
+          <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid #ccc', paddingBottom: '8px', width: '100%', justifyContent: 'center' }}>
+            <button onClick={() => { setMriEditMode('resize'); if(mriEditorRef.current) mriEditorRef.current.mode = 'resize'; }} style={{background: mriEditMode === 'resize' ? '#3b82f6' : '#e2e8f0', color: mriEditMode === 'resize' ? 'white' : 'black', padding: '6px 12px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', border: 'none', fontWeight: 'bold'}}>RESIZE</button>
+            <button onClick={() => { setMriEditMode('align'); if(mriEditorRef.current) mriEditorRef.current.mode = 'align'; }} style={{background: mriEditMode === 'align' ? '#3b82f6' : '#e2e8f0', color: mriEditMode === 'align' ? 'white' : 'black', padding: '6px 12px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', border: 'none', fontWeight: 'bold'}}>ALIGN</button>
           </div>
-          <button onClick={() => {
-            if (transformControlsRef.current?.object) {
-               // Simulate AI-based auto alignment by adjusting the MRI scale to match a typical isolated bone
-               transformControlsRef.current.object.scale.set(0.65, 0.65, 0.65);
-               transformControlsRef.current.object.position.set(0, 0.85, 0);
-               dirtyRef.current = true;
-               playConfirmationSound();
-            }
-          }} style={{background: '#3b82f6', color: 'white', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: 'none', fontWeight: 'bold'}}>
-             Auto-Align to Bone
-          </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
-             <span>Crop:</span>
-             <input type="range" min="0.1" max="1" step="0.05" defaultValue="1" onChange={e => {
-                const tr = (window as any).mriTextureRef;
-                if(tr && tr.current) {
-                   const val = parseFloat(e.target.value);
-                   tr.current.repeat.set(val, val);
-                   tr.current.offset.set((1-val)/2, (1-val)/2);
-                }
-             }} />
-          </div>
+          
+          {mriEditMode === 'resize' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', justifyContent: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                <input type="checkbox" defaultChecked={true} onChange={e => { if(mriEditorRef.current) mriEditorRef.current.aspectLocked = e.target.checked; }} />
+                Lock Ratio
+              </label>
+               <span style={{marginLeft: '10px'}}>Opacity:</span>
+               <input type="range" min="0" max="1" step="0.05" defaultValue="0.85" onChange={e => {
+                  const tr = (window as any).mriTextureRef;
+                  if(tr && tr.current && tr.current.material) {
+                     tr.current.material.opacity = parseFloat(e.target.value);
+                     dirtyRef.current = true;
+                  }
+               }} style={{width: '60px'}} />
+            </div>
+          )}
+          
+          {mriEditMode === 'align' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                <span>Target: <b>Femur ▼</b></span>
+              </div>
+              <button onClick={autoAlignToBone} style={{background: '#10b981', color: 'white', padding: '6px 12px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', border: 'none', fontWeight: 'bold'}}>
+                 AUTO ALIGN
+              </button>
+              
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', marginTop: '4px' }}>
+                 <span style={{width: '40px'}}>Depth</span>
+                 <input type="range" min="-2" max="2" step="0.05" defaultValue="0" onChange={e => {
+                    if (mriEditorRef.current && mriEditorRef.current.mesh) {
+                       const m = mriEditorRef.current.mesh;
+                       m.position.z = parseFloat(e.target.value);
+                       dirtyRef.current = true;
+                    }
+                 }} />
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

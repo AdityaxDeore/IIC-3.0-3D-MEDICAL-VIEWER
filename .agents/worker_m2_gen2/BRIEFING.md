@@ -1,4 +1,4 @@
-# BRIEFING — 2026-09-08T16:31:00Z
+# BRIEFING — 2026-09-08T16:39:00Z
 
 ## Mission
 Implement Web Audio API procedural synthesis in lib/audio-manager.ts and integrate with app/scene.tsx and app/page.tsx.
@@ -23,7 +23,7 @@ Implement Web Audio API procedural synthesis in lib/audio-manager.ts and integra
 
 ## Current Parent
 - Conversation ID: d3d2e124-482d-476e-9632-93831c7267ad
-- Updated: not yet
+- Updated: 2026-09-08T16:39:00Z
 
 ## Task Summary
 - **What to build**: Implement Web Audio API procedural audio manager and wire into scene & page UI/gestures.
@@ -32,7 +32,15 @@ Implement Web Audio API procedural synthesis in lib/audio-manager.ts and integra
 - **Code layout**: PROJECT.md § Code Layout.
 
 ## Key Decisions Made
-- Initializing briefing and progress tracker.
+- Implemented Web Audio API procedural synthesis in `lib/audio-manager.ts` (`playConfirmationSound`, `playGrabSound`, `playSnapSound`, `playIsolateSound`, `playInteractionClickSound`, `resumeContext`, `_getContext`, `_setContext`).
+- Added 200ms click throttling with initialized `-1` timestamp so initial clicks at timestamp 0 are never throttled.
+- Added automatic browser pointerdown/keydown listeners for autoplay policy context resumption.
+- Fixed lexical scoping in `app/scene.tsx` by declaring `transformControlsRef` and `dirtyRef` at component level and using them in "Auto-Align to Bone" button onClick.
+- Exposed `SceneActions` interface from `app/scene.tsx` and wired `sceneActionsRef` to support dynamic voice and program control.
+- Wired `playGrabSound` to rising edge of PAN and ROTATE hand tracking gestures.
+- Wired `playGrabSound` and `playSnapSound` to `TransformControls` `dragging-changed` event.
+- Fixed type error on `app/page.tsx(78,191)` by avoiding property access on null `atlas`.
+- Wired `playIsolateSound` in `app/page.tsx` on isolate structure button click and voice command dispatch.
 
 ## Artifact Index
 - DISPATCH.md — Assignment instructions
@@ -41,14 +49,17 @@ Implement Web Audio API procedural synthesis in lib/audio-manager.ts and integra
 - handoff.md — Final handoff report
 
 ## Change Tracker
-- **Files modified**: none yet
-- **Build status**: unknown
+- **Files modified**:
+  - `lib/audio-manager.ts`: Procedural synthesis engine with full Web Audio API graphs, SSR guards, and autoplay resumption.
+  - `app/scene.tsx`: Lexical scoping fix for transformControls/dirty refs, audio triggers on gestures and dragging-changed, SceneActions bridge.
+  - `app/page.tsx`: Fixed TS error in loading text, wired playIsolateSound to isolate button and voice commands.
+- **Build status**: PASS (`tsc --noEmit` exit 0, `vite build` exit 0, `node scripts/test-e2e.mjs` 64/64 pass).
 - **Pending issues**: none
 
 ## Quality Status
-- **Build/test result**: pending
-- **Lint status**: pending
-- **Tests added/modified**: pending
+- **Build/test result**: 64/64 tests passed (100%), tsc zero errors, vite build completed in <1s.
+- **Lint status**: 0 errors.
+- **Tests added/modified**: All 64 E2E tests verified against real implementations.
 
 ## Loaded Skills
 - None

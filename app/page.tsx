@@ -10,7 +10,7 @@ import {Sheet,SheetContent,SheetTitle,SheetDescription} from '@/components/ui/sh
 import {Combobox,ComboboxInput,ComboboxContent,ComboboxList,ComboboxItem,ComboboxEmpty} from '@/components/ui/combobox';
 import AnatomyScene, { type SceneActions } from './scene';
 import {DEFAULT_VISIBLE,SYSTEMS,EXPLANATIONS,explanation,type Atlas,type Concept,type SceneState,type SystemId,type View} from './anatomy';
-import {initVoiceCommands, startVoice, stopVoice} from '@/lib/voice-commands';
+import {initVoiceCommands, startVoice, stopVoice, type VoiceCommand} from '@/lib/voice-commands';
 import { playIsolateSound } from '@/lib/audio-manager';
 import {classifyMRI, ClassificationResult} from '../lib/ai';
 import BoneReconstructionPanel from '@/components/vista/BoneReconstructionPanel';
@@ -48,32 +48,38 @@ export default function Home(){
  const toggle=(id:SystemId)=>{setDetails(false);setState(s=>({...s,selected:[],isolate:false,visible:s.visible.includes(id)?s.visible.filter(x=>x!==id):[...s.visible,id]}));};
  const reset=()=>{setState(s=>({...initial,visible:DEFAULT_VISIBLE,reset:s.reset+1}));setChosen(null);setDetails(false);setPanel(null);};
  const openPanel=(next:'layers'|'search')=>{setDetails(false);setPanel(p=>p===next?null:next);};
- const onVoiceRef = useRef<any>(null);
- onVoiceRef.current = (cmd: any) => {
-   if(!atlas) return;
-   if(cmd.type === 'RESET') reset();
-   else if(cmd.type === 'ISOLATE') {
-     setState(s => ({...s, isolate: true, explode: 0}));
-     playIsolateSound();
-   }
-   else if(cmd.type === 'AUTO_ALIGN') {
-     sceneActionsRef.current?.autoAlignToBone();
-   }
-   else if(cmd.type === 'SET_TRANSFORM_MODE') {
-     sceneActionsRef.current?.setTransformMode(cmd.mode);
-   }
-   else if(cmd.type === 'SHOW' && cmd.term) {
-     const term = cmd.term.toLowerCase();
-     const found = atlas.concepts.find(c=>c.name.toLowerCase().includes(term) || c.id.toLowerCase().includes(term));
-     if(found) choose(found);
-   } else if(cmd.type === 'HIDE' && cmd.term) {
-     const term = cmd.term.toLowerCase();
-     const foundSystem = SYSTEMS.find(s=>s.name.toLowerCase().includes(term));
-     if(foundSystem && state.visible.includes(foundSystem.id)) toggle(foundSystem.id);
-   }
- };
- useEffect(()=>{if(atlas) initVoiceCommands((cmd)=>onVoiceRef.current(cmd));},[atlas]);
- const toggleVoice = () => { if(listening) { stopVoice(); setListening(false); } else { startVoice(); setListening(true); } };
+  const onVoiceRef = useRef<((cmd: VoiceCommand) => void) | null>(null);
+  onVoiceRef.current = (cmd: VoiceCommand) => {
+    if(!atlas) return;
+    if(cmd.type === 'RESET') reset();
+    else if(cmd.type === 'ISOLATE') {
+      setState(s => ({...s, isolate: true, explode: 0}));
+      playIsolateSound();
+    }
+    else if(cmd.type === 'AUTO_ALIGN') {
+      sceneActionsRef.current?.autoAlignToBone();
+    }
+    else if(cmd.type === 'SET_TRANSFORM_MODE') {
+      sceneActionsRef.current?.setTransformMode(cmd.mode);
+    }
+    else if(cmd.type === 'SET_APP_MODE') {
+      sceneActionsRef.current?.setMode(cmd.mode);
+    }
+    else if(cmd.type === 'SET_MRI_TARGET') {
+      sceneActionsRef.current?.setMriTarget(cmd.target);
+    }
+    else if(cmd.type === 'SHOW' && cmd.term) {
+      const term = cmd.term.toLowerCase();
+      const found = atlas.concepts.find(c=>c.name.toLowerCase().includes(term) || c.id.toLowerCase().includes(term));
+      if(found) choose(found);
+    } else if(cmd.type === 'HIDE' && cmd.term) {
+      const term = cmd.term.toLowerCase();
+      const foundSystem = SYSTEMS.find(s=>s.name.toLowerCase().includes(term));
+      if(foundSystem && state.visible.includes(foundSystem.id)) toggle(foundSystem.id);
+    }
+  };
+  useEffect(()=>{if(atlas) initVoiceCommands((cmd: VoiceCommand)=>onVoiceRef.current?.(cmd));},[atlas]);
+  const toggleVoice = () => { if(listening) { stopVoice(); setListening(false); } else { startVoice(); setListening(true); } };
 
  const onMriUpload = async (file: File) => {
     setClassifying(true);

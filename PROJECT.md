@@ -22,9 +22,9 @@
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
 | M1 | E2E Testing Suite | Create test infrastructure, runner (`scripts/test-e2e.mjs`), `package.json` script, and Tiers 1-4 test cases; publish `TEST_INFRA.md` & `TEST_READY.md` | none | DONE |
-| M2 | Audio Feedback Implementation | Implement `lib/audio-manager.ts`, hook confirmation sound to Auto-Align button, hook grab sound to Rotate/Pan gestures, fix `transformControlsRef` in `app/scene.tsx` | none | IN_PROGRESS |
-| M3 | Voice Mode Control Implementation | Implement extended `lib/voice-commands.ts` with `parseVoiceTranscript`, `onend` auto-restart, and `sceneActionsRef` bridge in `app/page.tsx` and `app/scene.tsx` | M2 | PLANNED |
-| M4 | Final Milestone & Verification | Run 100% E2E tests, execute Reviewers, Challengers, and Forensic Auditor gate verification | M1, M2, M3 | PLANNED |
+| M2 | Audio Feedback Implementation | Implement `lib/audio-manager.ts`, hook confirmation sound to Auto-Align button, hook grab sound to Rotate/Pan gestures, fix `transformControlsRef` in `app/scene.tsx` | none | DONE |
+| M3 | Voice Mode Control Implementation | Implement extended `lib/voice-commands.ts` with `parseVoiceTranscript`, `onend` auto-restart, and `sceneActionsRef` bridge in `app/page.tsx` and `app/scene.tsx` | M2 | DONE |
+| M4 | Final Milestone & Verification | Run 100% E2E tests, execute Reviewers, Challengers, and Forensic Auditor gate verification | M1, M2, M3 | DONE |
 
 ## Interface Contracts
 
