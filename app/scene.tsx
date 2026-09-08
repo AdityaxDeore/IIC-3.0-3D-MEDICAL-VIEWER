@@ -64,7 +64,13 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
     dirty = true;
   };
   (window as any).mriTextureRef = mriTextureRef;
-  
+  // Additive bridge for opt-in features (the VISTA-3D bone reconstruction).
+  // It only exposes the scene and a redraw request; nothing here changes how
+  // the viewer itself builds, animates or renders.
+  (window as any).__anatomyScene = {
+    scene, camera, requestRender: () => { if (!disposed) dirty = true; },
+  };
+
   if (spawnToolRef) {
     spawnToolRef.current = (toolType: 'screw' | 'rod' | 'clip') => {
       let geo: T.BufferGeometry;

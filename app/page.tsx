@@ -12,6 +12,7 @@ import AnatomyScene from './scene';
 import {DEFAULT_VISIBLE,SYSTEMS,EXPLANATIONS,explanation,type Atlas,type Concept,type SceneState,type SystemId,type View} from './anatomy';
 import {initVoiceCommands, startVoice, stopVoice} from '@/lib/voice-commands';
 import {classifyMRI, ClassificationResult} from '../lib/ai';
+import BoneReconstructionPanel from '@/components/vista/BoneReconstructionPanel';
 
 const initial:SceneState={explode:0,visible:DEFAULT_VISIBLE,selected:[],isolate:false,view:'three-quarter',rotate:false,reset:0};
 export default function Home(){
@@ -80,7 +81,10 @@ export default function Home(){
     <div className="absolute inset-0 z-0">
       <AnatomyScene atlas={atlas} state={{...state,inspectorOpen:details&&selectedParts.length>0}} onSelect={choosePart} onProgress={n=>{setProgress(n);if(n===100)setError('');}} onError={setError} onMriUpload={onMriUpload} spawnToolRef={spawnToolRef} />
      </div>
-     
+
+     {/* NVIDIA VISTA-3D: CT/MRI volume -> skeletal mesh in this same scene. */}
+     <BoneReconstructionPanel />
+
      {/* Surgical Plan UI Overlay */}
      {(classifying || classification) && (
        <div className="absolute right-6 top-24 w-80 bg-white/95 backdrop-blur shadow-lg rounded-xl overflow-hidden border border-slate-200 z-10 transition-all">
