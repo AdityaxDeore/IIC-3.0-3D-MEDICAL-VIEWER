@@ -25,6 +25,7 @@ export class MriEditor {
     this.overlay = overlay;
     
     this.createHandles();
+    this.bindEvents();
   }
   
   private createHandles() {
@@ -60,8 +61,8 @@ export class MriEditor {
     return 'default';
   }
   
-  private onPointerDown = (id: string, e: PointerEvent) => {
-    if (this.mode !== 'resize') return;
+  private onPointerDown = (id: string | null, e: PointerEvent) => {
+    if (this.mode === 'idle') return;
     e.stopPropagation();
     e.preventDefault();
     this.activeHandle = id;
@@ -78,6 +79,23 @@ export class MriEditor {
     document.addEventListener('pointermove', this.onPointerMove);
     document.addEventListener('pointerup', this.onPointerUp);
   };
+  
+  // Also, we need to bind pointerdown on the overlay itself to capture dragging the image in ALIGN mode.
+  private bindEvents() {
+    this.overlay.addEventListener('pointerdown', (e) => {
+       if (this.mode === 'align') {
+          // Verify we clicked on the mesh
+          const world = this.getPointerWorld(e);
+          if (world) {
+             const local = this.mesh.worldToLocal(world.clone());
+             const geoSize = 1.5;
+             if (Math.abs(local.x) <= geoSize/2 && Math.abs(local.y) <= geoSize/2) {
+                this.onPointerDown(null, e);
+             }
+          }
+       }
+    });
+  }
   
   private getPointerWorld(e: PointerEvent): T.Vector3 | null {
     const rect = this.domElement.getBoundingClientRect();
@@ -101,14 +119,25 @@ export class MriEditor {
     const currentWorld = this.getPointerWorld(e);
     if (!currentWorld) return;
     
-    const localStart = this.mesh.worldToLocal(this.initialPointerWorld.clone());
-    const localCurrent = this.mesh.worldToLocal(currentWorld.clone());
+    // Use a fixed initial matrix so scaling the mesh doesn't break our delta math!
+    const initialMatrix = new T.Matrix4().compose(this.initialPosition, this.initialRotation, this.initialScale);
+    const inverseInitialMatrix = new T.Matrix4().copy(initialMatrix).invert();
+    
+    const localStart = this.initialPointerWorld.clone().applyMatrix4(inverseInitialMatrix);
+    const localCurrent = currentWorld.clone().applyMatrix4(inverseInitialMatrix);
     const delta = localCurrent.sub(localStart);
     
     const geoSize = 1.5; // matching PlaneGeometry
     
+    if (this.activeHandle === null) {
+       // ALIGN translation logic
+       const translation = currentWorld.clone().sub(this.initialPointerWorld);
+       this.mesh.position.copy(this.initialPosition).add(translation);
+       return;
+    }
+    
     if (this.activeHandle.startsWith('rot')) {
-       // Rotation logic
+       // Rotation logic (apply delta to initial rotation)
        const angleStart = Math.atan2(localStart.y, localStart.x);
        const angleCurrent = Math.atan2(localCurrent.y, localCurrent.x);
        const angleDelta = angleCurrent - angleStart;
@@ -128,16 +157,29 @@ export class MriEditor {
     if (this.activeHandle.includes('t')) dy = delta.y;
     if (this.activeHandle.includes('b')) dy = -delta.y;
     
-    let scaleX = this.initialScale.x + dx / (geoSize / 2);
-    let scaleY = this.initialScale.y + dy / (geoSize / 2);
+    // Because delta is in unscaled local space (relative to initial scale),
+    // a delta of `geoSize/2` means we double the initial scale!
+    let scaleX = this.initialScale.x * (1 + dx / (geoSize / 2));
+    let scaleY = this.initialScale.y * (1 + dy / (geoSize / 2));
     
-    if (this.aspectLocked) {
-       const maxScale = Math.max(scaleX, scaleY);
-       scaleX = maxScale;
-       scaleY = maxScale;
+    if (this.aspectLocked && this.activeHandle.length === 2) {
+       // Only lock aspect ratio for corner drags
+       const scaleRatio = Math.max(scaleX / this.initialScale.x, scaleY / this.initialScale.y);
+       scaleX = this.initialScale.x * scaleRatio;
+       scaleY = this.initialScale.y * scaleRatio;
     }
     
-    this.mesh.scale.set(Math.max(0.1, scaleX), Math.max(0.1, scaleY), 1);
+    // To anchor the opposite edge, the center moves by half the actual size change in local space.
+    const actualDx = (scaleX - this.initialScale.x) * (geoSize / 2) * (this.activeHandle.includes('l') ? -1 : this.activeHandle.includes('r') ? 1 : 0);
+    const actualDy = (scaleY - this.initialScale.y) * (geoSize / 2) * (this.activeHandle.includes('b') ? -1 : this.activeHandle.includes('t') ? 1 : 0);
+    
+    // Convert local center shift to world shift
+    const centerShiftLocal = new T.Vector3(actualDx / 2, actualDy / 2, 0);
+    // Apply only initial rotation to the shift (scale is already baked into actualDx/actualDy)
+    centerShiftLocal.applyEuler(this.initialRotation);
+    
+    this.mesh.position.copy(this.initialPosition).add(centerShiftLocal);
+    this.mesh.scale.set(Math.max(0.01, scaleX), Math.max(0.01, scaleY), 1);
   };
   
   private onPointerUp = () => {
@@ -176,8 +218,8 @@ export class MriEditor {
       point.applyMatrix4(this.mesh.matrixWorld);
       point.project(this.camera);
       
-      const x = (point.x * 0.5 + 0.5) * rect.width;
-      const y = (-(point.y * 0.5) + 0.5) * rect.height;
+      const x = (point.x * 0.5 + 0.5) * rect.width + rect.left;
+      const y = (-(point.y * 0.5) + 0.5) * rect.height + rect.top;
       
       const handle = this.handles[id];
       if (handle) {

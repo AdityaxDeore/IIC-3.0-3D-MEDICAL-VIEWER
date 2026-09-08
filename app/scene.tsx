@@ -69,17 +69,20 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
          const length = max.y - min.y;
          
          const m = mriEditorRef.current.mesh;
-         // Custom position to fit the LEFT femur properly
          m.position.copy(center);
-         m.position.z += 0.05; // Slightly forward
-         m.position.y += 0.08; // Adjust up slightly to cover the neck
-         m.position.x += 0.05; // Adjust right slightly
+         // Submerge exactly in the center of the femur
+         m.position.z -= 0.02; // Push slightly back so it slices the bone
+         m.position.y += 0.12; // Shift up because the image femur is in the lower half
+         m.position.x += 0.06; // Shift right to match the left femur placement in the image
          
-         const targetScale = (length * 1.5) / 1.5; 
-         m.scale.set(targetScale * 1.4, targetScale * 1.4, 1); // Scale up for wider context
+         // The femur in the image takes up about 50% of the vertical space.
+         // Plane is 1.5 units high. We want 1.5 * scale * 0.5 = length.
+         // So scale = length / 0.75
+         const targetScale = length / 0.75; 
+         m.scale.set(targetScale, targetScale, 1);
          
          // Inward angle for left femur
-         m.rotation.set(0, 0, -0.15);
+         m.rotation.set(0, 0, -0.12);
          
          dirtyRef.current = true;
          playConfirmationSound();
@@ -137,7 +140,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
    // Load default image for the simulation if none loaded yet
    setTimeout(() => {
      if (onMriUploadRef.current && !mriTextureRef.current) {
-       onMriUploadRef.current('/default-mri.webp');
+       onMriUploadRef.current('/MRI-of-a-Stress-Fracture-in-the-Left-Femoral-Neck-MRI-image-showing-a-stress-fracture-of_Q320.webp');
      }
    }, 500);
   // Additive bridge for opt-in features (the VISTA-3D bone reconstruction).
@@ -447,7 +450,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
  return (
   <>
    <div className="scene" ref={host}/>
-   <div id="mri-editor-overlay" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 1000 }}></div>
+   <div id="mri-editor-overlay" style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', pointerEvents: 'none', zIndex: 1000 }}></div>
    
    <div style={{ position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', zIndex: 1002, display: 'flex', gap: '8px', background: 'rgba(255,255,255,0.8)', padding: '6px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
     <button onClick={() => setMode('standard')} style={{background: mode==='standard'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>Standard</button>
