@@ -112,23 +112,7 @@ function drawExoskeleton(landmarksList: any[]) {
       canvasCtx.arc(point.x * canvasElement.width, point.y * canvasElement.height, 3, 0, 2 * Math.PI);
       canvasCtx.fill();
     }
-  }
-
-  // Draw line between pinched hands
-  if (landmarksList.length >= 2) {
-    const hand1 = landmarksList[0];
-    const hand2 = landmarksList[1];
-    if (distance(hand1[4], hand1[8]) < 0.05 && distance(hand2[4], hand2[8]) < 0.05) {
-      canvasCtx.strokeStyle = "#ff0088"; // Pink line for axis
-      canvasCtx.lineWidth = 5;
-      canvasCtx.setLineDash([10, 10]);
-      canvasCtx.beginPath();
-      canvasCtx.moveTo(hand1[8].x * canvasElement.width, hand1[8].y * canvasElement.height);
-      canvasCtx.lineTo(hand2[8].x * canvasElement.width, hand2[8].y * canvasElement.height);
-      canvasCtx.stroke();
-      canvasCtx.setLineDash([]);
-    }
-  }
+  // Removed the red/pink dashed line logic
 }
 
 async function predictWebcam() {

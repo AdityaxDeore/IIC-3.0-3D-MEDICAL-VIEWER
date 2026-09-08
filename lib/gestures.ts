@@ -2,7 +2,7 @@ export type InteractionCommand =
   | { type: "CURSOR"; x: number; y: number; active: boolean }
   | { type: "SELECT"; x: number; y: number }
   | { type: "ROTATE"; dx: number; dy: number }
-  | { type: "TWO_HAND_PINCH"; x1: number; y1: number; z1: number; x2: number; y2: number; z2: number }
+  | { type: "ZOOM"; amount: number }
   | { type: "PAN"; dx: number; dy: number }
   | { type: "RESET" };
 
@@ -19,10 +19,6 @@ function distance(p1: NormalizedLandmark, p2: NormalizedLandmark) {
 export function detectGestures(landmarksList: NormalizedLandmark[][]): InteractionCommand | null {
   if (!landmarksList || landmarksList.length === 0) return null;
 
-  const isExtended = (tip: NormalizedLandmark, pip: NormalizedLandmark, wrist: NormalizedLandmark) => {
-    return distance(tip, wrist) > distance(pip, wrist);
-  };
-
   if (landmarksList.length >= 2) {
     const hand1 = landmarksList[0];
     const hand2 = landmarksList[1];
@@ -32,13 +28,15 @@ export function detectGestures(landmarksList: NormalizedLandmark[][]): Interacti
     const h2Pinch = distance(hand2[4], hand2[8]) < 0.05;
 
     if (h1Pinch && h2Pinch) {
-      return { 
-        type: "TWO_HAND_PINCH", 
-        x1: hand1[8].x, y1: hand1[8].y, z1: hand1[8].z,
-        x2: hand2[8].x, y2: hand2[8].y, z2: hand2[8].z
-      };
+      // Zoom amount based on distance between the two hands' index fingers
+      const d = distance(hand1[8], hand2[8]);
+      return { type: "ZOOM", amount: d };
     }
   }
+
+  const isExtended = (tip: NormalizedLandmark, pip: NormalizedLandmark, wrist: NormalizedLandmark) => {
+    return distance(tip, wrist) > distance(pip, wrist);
+  };
 
   const landmarks = landmarksList[0];
   const wrist = landmarks[0];

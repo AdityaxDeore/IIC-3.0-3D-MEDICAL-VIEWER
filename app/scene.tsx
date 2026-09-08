@@ -16,9 +16,12 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
  const host=useRef<HTMLDivElement>(null),latest=useRef(state),select=useRef(onSelect);
  const [mode, setMode] = useState<"standard" | "exoskeleton" | "mri" | "hidden">("standard");
  const [mriTarget, setMriTarget] = useState<"body" | "mri">("mri");
+ const [transformMode, setTransformMode] = useState<"translate" | "rotate" | "scale">("translate");
  const onMriUploadRef = useRef<((f: File) => void) | null>(null);
  const mriTargetRef = useRef(mriTarget);
+ const transformModeRef = useRef(transformMode);
  mriTargetRef.current = mriTarget;
+ transformModeRef.current = transformMode;
  latest.current=state;select.current=onSelect;
  useEffect(()=>{
   const el=host.current!;let disposed=false,frame=0,dirty=true,ready=false,lastView='',lastReset=-1,lastIsolate='',layoutKey='',amount=0;
@@ -31,6 +34,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(34,1,.005,100),controls=new OrbitControls(camera,renderer.domElement);
   camera.position.set(1.4,1.05,3.6);controls.target.set(0,.85,0);controls.enableDamping=true;controls.dampingFactor=.085;controls.minDistance=.07;controls.maxDistance=40;controls.minPolarAngle=0;controls.maxPolarAngle=Math.PI;controls.addEventListener('change',()=>{dirty=true;});
   const transformControls = new TransformControls(camera, renderer.domElement);
+  transformControls.size = 2.0;
   transformControls.addEventListener('dragging-changed', (event) => { controls.enabled = !event.value; });
   transformControls.addEventListener('change', () => { dirty = true; });
   scene.add(transformControls);
@@ -127,6 +131,10 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
        transformControls.visible = isMriActive;
        dirty = true;
      }
+     if (transformControls.mode !== transformModeRef.current) {
+       transformControls.setMode(transformModeRef.current);
+       dirty = true;
+     }
    }
    const changed=lastState?.visible!==s.visible||lastState?.selected!==s.selected||lastState?.isolate!==s.isolate;
    const moving=Math.abs(amount-s.explode)>.0001;
@@ -161,8 +169,8 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
 
   let isRotating = false;
   let isPanning = false;
+  let lastZoom = 0;
   let lastX = 0, lastY = 0;
-  let lastMidX = -1, lastMidY = -1;
   const initTracking = async () => {
     const video = document.getElementById('hand-video') as HTMLVideoElement;
     const canvas = document.getElementById('hand-canvas') as HTMLCanvasElement;
@@ -180,7 +188,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
           isPanning = false;
           renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 0 }));
         }
-        lastMidX = -1;
+        lastZoom = 0;
         return;
       }
 
@@ -235,27 +243,17 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
           lastY = y;
           renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 2 }));
         }
-      } else if (cmd.type === 'TWO_HAND_PINCH') {
-        const midX = (cmd.x1 + cmd.x2) / 2;
-        const midY = (cmd.y1 + cmd.y2) / 2;
-        if (lastMidX !== -1) {
-          const dx = midX - lastMidX;
-          const dy = midY - lastMidY;
-          const angle = Math.atan2(cmd.y2 - cmd.y1, cmd.x2 - cmd.x1);
-          const isVertical = Math.abs(Math.sin(angle)) > 0.707;
-          
-          if (mriTargetRef.current === 'mri' && transformControls.object) {
-            if (isVertical) {
-               transformControls.object.position.z += dy * 5; 
-            } else {
-               transformControls.object.position.x -= dx * 5;
-               transformControls.object.position.y -= dy * 5;
-            }
-            dirty = true;
+      } else if (cmd.type === 'ZOOM') {
+        if (lastZoom > 0) {
+          const smoothedAmount = lastZoom * 0.8 + cmd.amount * 0.2;
+          const delta = smoothedAmount - lastZoom;
+          if (Math.abs(delta) > 0.001) {
+            renderer.domElement.dispatchEvent(new WheelEvent('wheel', { deltaY: -delta * 5000 }));
           }
+          lastZoom = smoothedAmount;
+        } else {
+          lastZoom = cmd.amount;
         }
-        lastMidX = midX;
-        lastMidY = midY;
       }
 
       if (cmd.type !== 'ROTATE' && isRotating) {
@@ -266,8 +264,8 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
         isPanning = false;
         renderer.domElement.dispatchEvent(new PointerEvent('pointerup', { pointerId: 98, clientX: lastX, clientY: lastY, button: 2, buttons: 0 }));
       }
-      if (cmd.type !== 'TWO_HAND_PINCH') {
-        lastMidX = -1;
+      if (cmd.type !== 'ZOOM') {
+        lastZoom = 0;
       }
     });
     await startCamera();
@@ -303,6 +301,13 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError}:P
         <button onClick={() => setMriTarget('body')} id="btn-control-body" style={{background: '#e2e8f0', padding: '4px 10px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', border: mriTarget === 'body' ? '2px solid #3b82f6' : '2px solid transparent'}}>Control Body</button>
         <button onClick={() => setMriTarget('mri')} id="btn-control-mri" style={{background: '#e2e8f0', padding: '4px 10px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', border: mriTarget === 'mri' ? '2px solid #3b82f6' : '2px solid transparent'}}>Control MRI</button>
       </div>
+      {mriTarget === 'mri' && (
+        <div style={{ display: 'flex', gap: '8px', marginTop: '5px' }}>
+          <button onClick={() => setTransformMode('translate')} style={{background: '#e2e8f0', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: transformMode === 'translate' ? '2px solid #3b82f6' : '2px solid transparent'}}>Move</button>
+          <button onClick={() => setTransformMode('rotate')} style={{background: '#e2e8f0', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: transformMode === 'rotate' ? '2px solid #3b82f6' : '2px solid transparent'}}>Rotate</button>
+          <button onClick={() => setTransformMode('scale')} style={{background: '#e2e8f0', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: transformMode === 'scale' ? '2px solid #3b82f6' : '2px solid transparent'}}>Scale</button>
+        </div>
+      )}
     </div>
    )}
 
