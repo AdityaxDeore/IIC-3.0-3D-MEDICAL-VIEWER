@@ -205,8 +205,8 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
      }else if(lastIsolate){camera.clearViewOffset();fit(s.view,amount);}
     lastIsolate=isolateKey;
    }
-   controls.enabled = !s.isolate;
-   trackball.enabled = s.isolate;
+   controls.enabled = (!s.isolate) && (mriTargetRef.current === 'body');
+   trackball.enabled = (s.isolate) && (mriTargetRef.current === 'body');
    controls.enableRotate=amount<.8;controls.mouseButtons.LEFT=amount<.8?T.MOUSE.ROTATE:T.MOUSE.PAN;controls.touches.ONE=amount<.8?T.TOUCH.ROTATE:T.TOUCH.PAN;ground.visible=platform.visible=ring.visible=innerRing.visible=amount<.5&&!s.isolate;markers.visible=amount>.75;controls.autoRotate=s.rotate&&!s.isolate&&amount<.4;controls.autoRotateSpeed=.65;
    if(controls.enabled){controls.update();if(controls.autoRotate)dirty=true;}
    if(trackball.enabled){trackball.update();}
