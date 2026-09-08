@@ -19,6 +19,10 @@ function distance(p1: NormalizedLandmark, p2: NormalizedLandmark) {
 export function detectGestures(landmarksList: NormalizedLandmark[][]): InteractionCommand | null {
   if (!landmarksList || landmarksList.length === 0) return null;
 
+  const isExtended = (tip: NormalizedLandmark, pip: NormalizedLandmark, wrist: NormalizedLandmark) => {
+    return distance(tip, wrist) > distance(pip, wrist);
+  };
+
   if (landmarksList.length >= 2) {
     const hand1 = landmarksList[0];
     const hand2 = landmarksList[1];
@@ -32,11 +36,15 @@ export function detectGestures(landmarksList: NormalizedLandmark[][]): Interacti
       const d = distance(hand1[8], hand2[8]);
       return { type: "ZOOM", amount: d };
     }
-  }
 
-  const isExtended = (tip: NormalizedLandmark, pip: NormalizedLandmark, wrist: NormalizedLandmark) => {
-    return distance(tip, wrist) > distance(pip, wrist);
-  };
+    // Check if both hands are fists (all fingers curled except thumb which doesn't matter much)
+    const h1Fist = !isExtended(hand1[8], hand1[6], hand1[0]) && !isExtended(hand1[12], hand1[10], hand1[0]) && !isExtended(hand1[16], hand1[14], hand1[0]) && !isExtended(hand1[20], hand1[18], hand1[0]);
+    const h2Fist = !isExtended(hand2[8], hand2[6], hand2[0]) && !isExtended(hand2[12], hand2[10], hand2[0]) && !isExtended(hand2[16], hand2[14], hand2[0]) && !isExtended(hand2[20], hand2[18], hand2[0]);
+    if (h1Fist && h2Fist) {
+      // Return ROTATE command. Use hand1's index knuckle for dragging coordinates
+      return { type: "ROTATE", dx: hand1[6].x, dy: hand1[6].y };
+    }
+  }
 
   const landmarks = landmarksList[0];
   const wrist = landmarks[0];

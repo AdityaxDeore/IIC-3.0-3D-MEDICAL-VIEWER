@@ -181,7 +181,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
    if(moving){amount=T.MathUtils.damp(amount,s.explode,8,dt);dirty=true;}
    if(changed||moving||lastExtent<0){
     const visible=new Set(s.visible),selection=new Set(s.selected);
-    const visibleParts=atlas.parts.filter(p=>s.isolate?selection.has(p.id):visible.has(p.system)||selection.has(p.id));
+    const visibleParts=atlas.parts.filter(p=>s.isolate?(selection.has(p.id) || p.system === 'nervous'):visible.has(p.system)||selection.has(p.id));
     const nextLayoutKey=visibleParts.map(p=>p.id).join(',')+':'+camera.aspect.toFixed(3);
     if(nextLayoutKey!==layoutKey){const layout=createExplosionLayout(visibleParts,camera.aspect);packingWidth=layout.width;packingHeight=layout.height;atlas.parts.forEach((p,i)=>{const cell=layout.cells.get(p.id);offsets[i]=cell?new T.Vector3(cell.x,cell.y+.85,0):centers[i].clone();});layoutKey=nextLayoutKey;if(amount>.05&&!s.isolate)fit(s.view,Math.max(0,(amount-.3)/.7));}
 
@@ -189,7 +189,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
      const c=centers[i],destination=offsets[i];let dx=0,dy=0,dz=0;
      if(amount<=.45){const t=amount/.45;const group=SYSTEMS.findIndex(sys=>sys.id===p.system);const angle=group/SYSTEMS.length*Math.PI*2;dx=Math.sin(angle)*t*.48;dy=(c.y-.85)*t*.28;dz=Math.cos(angle)*t*.48;}
      else {const t=(amount-.45)/.55,group=SYSTEMS.findIndex(sys=>sys.id===p.system),angle=group/SYSTEMS.length*Math.PI*2;dx=T.MathUtils.lerp(Math.sin(angle)*.48,destination.x-c.x,t);dy=T.MathUtils.lerp((c.y-.85)*.28,destination.y-c.y,t);dz=T.MathUtils.lerp(Math.cos(angle)*.48,-c.z,t);}
-     const selected=selection.has(p.id);data.set([dx,dy,dz,(s.isolate?selected:visible.has(p.system)||selected)?1:0],i*4);selectedData[i*4]=selected?255:0;
+     const selected=selection.has(p.id);data.set([dx,dy,dz,(s.isolate?(selected || p.system === 'nervous'):visible.has(p.system)||selected)?1:0],i*4);selectedData[i*4]=selected?255:0;
      markerPositions.set(data[i*4+3]>.5?[c.x+dx,c.y+dy,c.z+dz]:[10000,10000,10000],i*3);const mesh=pickers[i];if(mesh){mesh.position.set(dx,dy,dz);mesh.updateMatrix();mesh.updateMatrixWorld(true);}
     });partTexture.needsUpdate=true;selectionTexture.needsUpdate=true;markerGeometry.attributes.position.needsUpdate=true;lastState=s;lastExtent=amount;dirty=true;
    }
@@ -241,7 +241,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
       else if (cmd.type === 'ROTATE' || cmd.type === 'PAN') { rawX = cmd.dx; rawY = cmd.dy; }
 
       if (rawX !== 0 || rawY !== 0) {
-        const x = rawX * window.innerWidth;
+        const x = (1 - rawX) * window.innerWidth;
         const y = rawY * window.innerHeight;
         // Exponential Moving Average for buttery smooth gestures
         if (lastX === 0 && lastY === 0) { lastX = x; lastY = y; }
@@ -341,6 +341,16 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
             <button onClick={() => setTransformMode('rotate')} style={{background: '#e2e8f0', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: transformMode === 'rotate' ? '2px solid #3b82f6' : '2px solid transparent'}}>Rotate</button>
             <button onClick={() => setTransformMode('scale')} style={{background: '#e2e8f0', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: transformMode === 'scale' ? '2px solid #3b82f6' : '2px solid transparent'}}>Scale</button>
           </div>
+          <button onClick={() => {
+            if (transformControls.object) {
+               // Simulate AI-based auto alignment by adjusting the MRI scale to match a typical isolated bone
+               transformControls.object.scale.set(0.65, 0.65, 0.65);
+               transformControls.object.position.set(0, 0, -2);
+               dirty = true;
+            }
+          }} style={{background: '#3b82f6', color: 'white', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', border: 'none', fontWeight: 'bold'}}>
+             Auto-Align to Bone
+          </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
              <span>Crop:</span>
              <input type="range" min="0.1" max="1" step="0.05" defaultValue="1" onChange={e => {
