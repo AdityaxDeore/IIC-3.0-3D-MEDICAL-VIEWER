@@ -122,14 +122,9 @@ export class MriEditor {
     if (!currentWorld) return;
     
     // Use a fixed initial matrix so scaling the mesh doesn't break our delta math!
-    const initialMatrix = new T.Matrix4().compose(this.initialPosition, this.initialRotation, this.initialScale);
-    const inverseInitialMatrix = new T.Matrix4().copy(initialMatrix).invert();
-    
-    const localStart = this.initialPointerWorld.clone().applyMatrix4(inverseInitialMatrix);
-    const localCurrent = currentWorld.clone().applyMatrix4(inverseInitialMatrix);
-    const delta = localCurrent.sub(localStart);
-    
-    const geoSize = 1.5; // matching PlaneGeometry
+    const localCurrent = currentWorld.clone().applyMatrix4(this.inverseMatrix);
+    const localStart = this.initialPointerWorld.clone().applyMatrix4(this.inverseMatrix);
+    const deltaLocal = localCurrent.clone().sub(localStart);
     
     if (this.activeHandle === null) {
        // ALIGN translation logic
@@ -151,40 +146,64 @@ export class MriEditor {
        if (this.onChange) this.onChange();
        return;
     }
+
+    const dx = deltaLocal.x;
+    const dy = deltaLocal.y;
     
-    // Resizing logic
-    let dx = 0;
-    let dy = 0;
+    const geoSize = 1.5;
     
-    if (this.activeHandle.includes('l')) dx = -delta.x;
-    if (this.activeHandle.includes('r')) dx = delta.x;
-    if (this.activeHandle.includes('t')) dy = delta.y;
-    if (this.activeHandle.includes('b')) dy = -delta.y;
+    let scaleX = this.initialScale.x;
+    let scaleY = this.initialScale.y;
     
-    // Because delta is in unscaled local space (relative to initial scale),
-    // a delta of `geoSize/2` means we double the initial scale!
-    let scaleX = this.initialScale.x * (1 + dx / (geoSize / 2));
-    let scaleY = this.initialScale.y * (1 + dy / (geoSize / 2));
-    
-    if (this.aspectLocked && this.activeHandle.length === 2) {
-       // Only lock aspect ratio for corner drags
-       const scaleRatio = Math.max(scaleX / this.initialScale.x, scaleY / this.initialScale.y);
-       scaleX = this.initialScale.x * scaleRatio;
-       scaleY = this.initialScale.y * scaleRatio;
+    // First determine requested scale based on mouse drag
+    switch (this.activeHandle) {
+      case 'r': scaleX = this.initialScale.x * (1 + dx / (geoSize / 2)); break;
+      case 'l': scaleX = this.initialScale.x * (1 - dx / (geoSize / 2)); break;
+      case 't': scaleY = this.initialScale.y * (1 + dy / (geoSize / 2)); break;
+      case 'b': scaleY = this.initialScale.y * (1 - dy / (geoSize / 2)); break;
+      case 'tr': scaleX = this.initialScale.x * (1 + dx / (geoSize / 2)); scaleY = this.initialScale.y * (1 + dy / (geoSize / 2)); break;
+      case 'tl': scaleX = this.initialScale.x * (1 - dx / (geoSize / 2)); scaleY = this.initialScale.y * (1 + dy / (geoSize / 2)); break;
+      case 'br': scaleX = this.initialScale.x * (1 + dx / (geoSize / 2)); scaleY = this.initialScale.y * (1 - dy / (geoSize / 2)); break;
+      case 'bl': scaleX = this.initialScale.x * (1 - dx / (geoSize / 2)); scaleY = this.initialScale.y * (1 - dy / (geoSize / 2)); break;
     }
     
-    // To anchor the opposite edge, the center moves by half the actual size change in local space.
-    // The actualDx is exactly the amount the edge moves relative to the center, which is exactly the amount the center must shift to anchor the opposite edge.
-    const actualDx = (scaleX - this.initialScale.x) * (geoSize / 2) * (this.activeHandle.includes('l') ? -1 : this.activeHandle.includes('r') ? 1 : 0);
-    const actualDy = (scaleY - this.initialScale.y) * (geoSize / 2) * (this.activeHandle.includes('b') ? -1 : this.activeHandle.includes('t') ? 1 : 0);
+    // Enforce aspect ratio if locked (only for corners)
+    if (this.aspectLocked && !['r', 'l', 't', 'b'].includes(this.activeHandle)) {
+      const ratioX = scaleX / this.initialScale.x;
+      const ratioY = scaleY / this.initialScale.y;
+      const ratio = Math.max(ratioX, ratioY);
+      scaleX = this.initialScale.x * ratio;
+      scaleY = this.initialScale.y * ratio;
+    }
     
-    // Convert local center shift to world shift
-    const centerShiftLocal = new T.Vector3(actualDx, actualDy, 0);
-    // Apply only initial rotation to the shift (scale is already baked into actualDx/actualDy)
-    centerShiftLocal.applyEuler(this.initialRotation);
+    // Clamp scales to prevent disappearing or exploding
+    scaleX = Math.max(0.01, Math.min(10, scaleX));
+    scaleY = Math.max(0.01, Math.min(10, scaleY));
+    
+    // Calculate the physical expansion in local units
+    const diffX = (scaleX - this.initialScale.x) * (geoSize / 2);
+    const diffY = (scaleY - this.initialScale.y) * (geoSize / 2);
+    
+    // Determine which way the center must shift to keep the opposite edge anchored
+    let shiftX = 0;
+    let shiftY = 0;
+    
+    switch (this.activeHandle) {
+      case 'r': shiftX = diffX; break;
+      case 'l': shiftX = -diffX; break;
+      case 't': shiftY = diffY; break;
+      case 'b': shiftY = -diffY; break;
+      case 'tr': shiftX = diffX; shiftY = diffY; break;
+      case 'tl': shiftX = -diffX; shiftY = diffY; break;
+      case 'br': shiftX = diffX; shiftY = -diffY; break;
+      case 'bl': shiftX = -diffX; shiftY = -diffY; break;
+    }
+    
+    // Apply only initial rotation to the shift (scale is already baked into actual diffs)
+    const centerShiftLocal = new T.Vector3(shiftX, shiftY, 0).applyEuler(this.initialRotation);
     
     this.mesh.position.copy(this.initialPosition).add(centerShiftLocal);
-    this.mesh.scale.set(Math.max(0.01, scaleX), Math.max(0.01, scaleY), 1);
+    this.mesh.scale.set(scaleX, scaleY, 1);
     if (this.onChange) this.onChange();
   };
   
