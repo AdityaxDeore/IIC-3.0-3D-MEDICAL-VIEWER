@@ -6,7 +6,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "concurrently \"vite --host 0.0.0.0 --port 3016\" \"npm run dev --prefix public/brainchop -- --port 3017\" \"npm run dev --prefix anatomy -- --port 3018\"",
+    "dev": "concurrently \"vite --host 0.0.0.0 --port 3016\" \"npm run dev --prefix brainchop -- --port 3017\" \"npm run dev --prefix anatomy -- --port 3018\" \"npx http-server LiverSurgery -p 3019 -c-1\" \"npm run dev --prefix Soma-Health -- -p 3021\" \"cross-env OHIF_PORT=3020 yarn --cwd OHIF-AI/Viewers run dev:fast\"",
     "build": "vite build",
     "build:vercel": "vite build",
     "check": "tsc --noEmit",
@@ -49,6 +49,8 @@
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
     "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "http-server": "^14.1.1",
     "meshoptimizer": "^1.2.0",
     "oxfmt": "0.61.0",
     "oxlint": "1.76.0",

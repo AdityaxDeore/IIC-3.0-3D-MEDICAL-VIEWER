@@ -12,6 +12,7 @@ import {SYSTEMS,type Atlas,type SceneState} from './anatomy';
 import { initializeHandTracking, startCamera, startTracking } from '../lib/hand-tracking';
 import { InteractionCommand } from '../lib/gestures';
 import { playConfirmationSound, playGrabSound, playSnapSound } from '@/lib/audio-manager';
+import { analyzeImageWithGemini } from '../lib/gemini';
 import { MriEditor } from '../lib/mri-editor';
 import { fitToBone, measureContent, type ImageContent } from '@/lib/mri-align';
 import { getRegionBox, type RegionId } from '@/lib/vista/atlas-regions';
@@ -31,10 +32,13 @@ export interface SceneActions {
 interface Props {atlas:Atlas;state:SceneState;onSelect:(id:string)=>void;onProgress:(n:number)=>void;onError:(s:string)=>void;onMriUpload:(file:File)=>void;spawnToolRef:React.MutableRefObject<((tool:'screw'|'rod'|'clip')=>void)|null>;sceneActionsRef?:React.MutableRefObject<SceneActions|null>}
 export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,onMriUpload,spawnToolRef,sceneActionsRef}:Props){
  const host=useRef<HTMLDivElement>(null),latest=useRef(state),select=useRef(onSelect);
-  const [mode, setMode] = useState<"standard" | "exoskeleton" | "mri" | "hidden" | "brainchop" | "yale" | "surgical_simulator" | "surgery">("standard");
- const [mriTarget, setMriTarget] = useState<"body" | "mri">("mri");
+ const [mode, setMode] = useState<'standard' | 'mri' | 'brainchop' | 'yale' | 'surgical_simulator' | 'surgery'>('standard');
+ const [mriTarget, setMriTarget] = useState<'body' | 'mri'>('mri');
  const [transformMode, setTransformMode] = useState<"translate" | "rotate" | "scale">("translate");
- const [mriEditMode, setMriEditMode] = useState<"resize" | "align">("resize");
+ const [mriEditMode, setMriEditMode] = useState<'align' | 'resize'>('resize');
+ const [mriFile, setMriFile] = useState<File | null>(null);
+ const [aiReport, setAiReport] = useState<string | null>(null);
+ const [isAnalyzing, setIsAnalyzing] = useState(false);
  const [cameraExpanded, setCameraExpanded] = useState(false);
  const onMriUploadRef = useRef<((f: File | string) => void) | null>(null);
  const mriTargetRef = useRef(mriTarget);
@@ -129,8 +133,8 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   let lastState:SceneState|null=null;
   const abort=new AbortController();
   let renderer:T.WebGLRenderer;
-  try{renderer=new T.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});}catch{onError('This browser could not start the 3D viewer. Please try a browser with WebGL enabled.');return;}
-  renderer.setPixelRatio(Math.min(devicePixelRatio,innerWidth<768?1.5:2));renderer.setClearColor('#f2f3f3');renderer.outputColorSpace=T.SRGBColorSpace;renderer.toneMapping=T.CineonToneMapping;renderer.toneMappingExposure=0.92;el.appendChild(renderer.domElement);
+  try{renderer=new T.WebGLRenderer({antialias:true,alpha:true,powerPreference:'high-performance'});}catch{onError('This browser could not start the 3D viewer. Please try a browser with WebGL enabled.');return;}
+  renderer.setPixelRatio(Math.min(devicePixelRatio,innerWidth<768?1.5:2));renderer.setClearColor(0x000000, 0);renderer.outputColorSpace=T.SRGBColorSpace;renderer.toneMapping=T.CineonToneMapping;renderer.toneMappingExposure=0.92;el.appendChild(renderer.domElement);
   renderer.domElement.setAttribute('aria-label','Interactive human anatomy. Drag to orbit, pinch or scroll to zoom, and tap a structure to inspect it.');
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(34,1,.005,100),controls=new OrbitControls(camera,renderer.domElement);
   const trackball=new TrackballControls(camera,renderer.domElement);
@@ -505,29 +509,18 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
           cursor.style.backgroundColor = cmd.type === 'SELECT' ? 'rgba(0, 150, 255, 0.9)' : 'rgba(255, 0, 0, 0.7)';
           cursor.style.transform = cmd.type === 'SELECT' ? 'scale(1.3)' : 'scale(1)';
         }
-        let target = document.elementFromPoint(lastX, lastY) || renderer.domElement;
+        const target = document.elementFromPoint(lastX, lastY) || renderer.domElement;
+        // Monkey-patch setPointerCapture to prevent crash
+        const originalSetPointerCapture = target.setPointerCapture;
+        target.setPointerCapture = function(id) { try { originalSetPointerCapture.call(this, id); } catch(e) {} };
+        const originalReleasePointerCapture = target.releasePointerCapture;
+        target.releasePointerCapture = function(id) { try { originalReleasePointerCapture.call(this, id); } catch(e) {} };
         
-        // Attempt to pierce same-origin iframes
-        if (target.tagName === 'IFRAME') {
-          try {
-            const iframeDoc = (target as HTMLIFrameElement).contentDocument;
-            if (iframeDoc) {
-              const rect = target.getBoundingClientRect();
-              const innerX = lastX - rect.left;
-              const innerY = lastY - rect.top;
-              target = iframeDoc.elementFromPoint(innerX, innerY) || target;
-            }
-          } catch (e) {
-            // Cross-origin iframe in dev, ignore
+        target.dispatchEvent(new PointerEvent('pointermove', { clientX: lastX, clientY: lastY, button: -1, buttons: 0, bubbles: true }));
+          if (cmd.type === 'SELECT') {
+            target.dispatchEvent(new PointerEvent('pointerdown', { clientX: lastX, clientY: lastY, button: 0, buttons: 1, bubbles: true }));
+            target.dispatchEvent(new PointerEvent('pointerup', { clientX: lastX, clientY: lastY, button: 0, buttons: 0, bubbles: true }));
           }
-        }
-
-        target.dispatchEvent(new PointerEvent('pointermove', { pointerId: 99, clientX: lastX, clientY: lastY, button: -1, bubbles: true, cancelable: true }));
-        if (cmd.type === 'SELECT') {
-          target.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1, bubbles: true, cancelable: true }));
-          target.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 0, bubbles: true, cancelable: true }));
-          target.dispatchEvent(new MouseEvent('click', { clientX: lastX, clientY: lastY, button: 0, bubbles: true, cancelable: true }));
-        }
       }
     });
     await startCamera();
@@ -539,18 +532,33 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
  },[atlas]);
 
  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-  if (e.target.files && e.target.files[0] && onMriUploadRef.current) {
-    onMriUploadRef.current(e.target.files[0]);
-    onMriUpload(e.target.files[0]);
+  if (e.target.files && e.target.files[0]) {
+    setMriFile(e.target.files[0]);
+    if (onMriUploadRef.current) {
+      onMriUploadRef.current(e.target.files[0]);
+    }
   }
  };
 
- const getAppUrl = (app: 'brainchop' | 'yale' | 'surgery') => {
-   if (app === 'brainchop') return import.meta.env.DEV ? 'http://localhost:3017/' : '/brainchop/dist/index.html';
-   if (app === 'yale') return import.meta.env.DEV ? 'http://localhost:3018/' : '/anatomy/dist/index.html';
-   if (app === 'surgery') return import.meta.env.DEV ? 'http://localhost:3019/' : '/liver-surgery/index.html';
-   return '';
+ const handleAiAnalyze = async () => {
+    if (!mriFile) return;
+    setIsAnalyzing(true);
+    setAiReport(null);
+    try {
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+            const base64data = reader.result as string;
+            const report = await analyzeImageWithGemini(base64data, "You are a radiologist. Please analyze this medical image and provide a detailed radiological report including findings and impressions.");
+            setAiReport(report);
+            setIsAnalyzing(false);
+        };
+        reader.readAsDataURL(mriFile);
+    } catch (err) {
+        setAiReport("Failed to analyze image: " + err);
+        setIsAnalyzing(false);
+    }
  };
+
 
  return (
   <>
@@ -560,18 +568,12 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
    <div style={{ position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', zIndex: 1002, display: 'flex', gap: '8px', background: 'rgba(255,255,255,0.8)', padding: '6px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
     <button onClick={() => setMode('standard')} style={{background: mode==='standard'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>Standard</button>
     <button onClick={() => setMode('mri')} style={{background: mode==='mri'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>MRI Mode</button>
-    <button onClick={() => window.open(getAppUrl('brainchop'), '_blank')} style={{background: 'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'}}>🧠 Brainchop</button>
-    <button onClick={() => window.open(getAppUrl('yale'), '_blank')} style={{background: 'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'}}>🏛️ Yale Anatomy</button>
-    <button onClick={() => setMode('surgical_simulator')} style={{background: mode==='surgical_simulator'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'}}>🔪 Surgical Sim (Yale)</button>
-    <button onClick={() => window.open(getAppUrl('surgery'), '_blank')} style={{background: 'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'}}>🏥 Surgery Feature</button>
+    <button onClick={() => window.open(import.meta.env.DEV ? 'http://localhost:3017/' : '/brainchop/dist/index.html', '_blank')} style={{background: 'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>Brainchop</button>
+    <button onClick={() => window.open(import.meta.env.DEV ? 'http://localhost:3018/' : '/anatomy/dist/index.html', '_blank')} style={{background: 'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>Yale Anatomy</button>
+    <button onClick={() => window.open(import.meta.env.DEV ? 'http://localhost:3019/?ui=desktop' : '/surgery/index.html?ui=desktop', '_blank')} style={{background: 'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>Surgery Feature</button>
+    <button onClick={() => window.open('http://localhost:3020/', '_blank')} style={{background: 'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>OHIF-AI</button>
+    <button onClick={() => window.open('http://localhost:3021/', '_blank')} style={{background: 'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>Soma-Health (Bone)</button>
    </div>
-
-   {mode === 'surgical_simulator' && (
-     <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1001, background: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', flexDirection: 'column' }}>
-       <h2>Surgical Simulator</h2>
-       <p>Loading Yale models (hospital_operating_room_ward.glb)...</p>
-     </div>
-   )}
 
    {mode === 'mri' && (
     <div style={{ position: 'absolute', top: '60px', left: '50%', transform: 'translateX(-50%)', zIndex: 1002, background: 'rgba(255,255,255,0.9)', padding: '10px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
@@ -628,39 +630,58 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
               </div>
             </div>
           )}
+
+          {mriFile && (
+            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+              <button 
+                onClick={handleAiAnalyze} 
+                disabled={isAnalyzing}
+                style={{background: isAnalyzing ? '#94a3b8' : '#8b5cf6', color: 'white', padding: '8px 16px', borderRadius: '4px', fontSize: '13px', cursor: isAnalyzing ? 'not-allowed' : 'pointer', border: 'none', fontWeight: 'bold', width: '100%'}}>
+                {isAnalyzing ? 'Analyzing with Gemini...' : 'Generate AI Radiology Report'}
+              </button>
+            </div>
+          )}
+
+          {aiReport && (
+             <div style={{ marginTop: '10px', background: '#f8fafc', padding: '12px', borderRadius: '6px', fontSize: '12px', color: '#334155', maxHeight: '250px', overflowY: 'auto', border: '1px solid #e2e8f0', width: '100%', textAlign: 'left' }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#0f172a' }}>Gemini Analysis:</div>
+                <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>{aiReport}</div>
+             </div>
+          )}
         </div>
       )}
     </div>
    )}
 
-   <div style={{
-     position: 'absolute',
-     top: cameraExpanded ? 0 : 'auto',
-     left: cameraExpanded ? 0 : 'auto',
-     bottom: cameraExpanded ? 'auto' : '16px',
-     right: cameraExpanded ? 'auto' : '16px',
-     width: cameraExpanded ? '100vw' : '280px',
-     height: cameraExpanded ? '100vh' : '210px',
-     aspectRatio: cameraExpanded ? 'auto' : '4/3',
-     zIndex: cameraExpanded ? 2000 : 2000,
-     borderRadius: cameraExpanded ? '0' : '12px',
-     overflow: 'hidden',
-     pointerEvents: 'none',
-     transition: 'all 0.3s ease',
-     boxShadow: cameraExpanded ? 'none' : '0 10px 25px rgba(0,0,0,0.2)'
-   }}>
-     <video id="hand-video" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)', opacity: cameraExpanded ? 0.05 : 1, transition: 'opacity 0.3s' }} playsInline muted></video>
-     <canvas id="hand-canvas" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }}></canvas>
+    <div style={{
+      position: 'absolute',
+      top: cameraExpanded ? 0 : 'auto',
+      left: cameraExpanded ? 0 : 'auto',
+      bottom: cameraExpanded ? 'auto' : '16px',
+      right: cameraExpanded ? 'auto' : '16px',
+      width: cameraExpanded ? '100vw' : '280px',
+      height: cameraExpanded ? '100vh' : 'auto',
+      aspectRatio: cameraExpanded ? 'auto' : '4/3',
+      zIndex: cameraExpanded ? -10 : 1000,
+      borderRadius: cameraExpanded ? '0' : '12px',
+      overflow: 'hidden',
+      pointerEvents: 'none',
+      transition: 'all 0.3s ease',
+      boxShadow: cameraExpanded ? 'none' : '0 10px 25px rgba(0,0,0,0.2)',
+      backgroundColor: cameraExpanded ? '#f2f3f3' : 'black'
+    }}>
+      <video id="hand-video" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)', opacity: cameraExpanded ? 0.15 : 1, transition: 'opacity 0.3s' }} playsInline muted></video>
+      <canvas id="hand-canvas" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)', opacity: cameraExpanded ? 0.3 : 1, transition: 'opacity 0.3s' }}></canvas>
      
      <button 
-       style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 2001, background: 'rgba(0,0,0,0.2)', color: 'white', border: 'none', borderRadius: '4px', padding: '6px', pointerEvents: 'auto', cursor: 'pointer', transition: 'background 0.2s' }}
+       style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 1001, background: 'rgba(0,0,0,0.2)', color: 'white', border: 'none', borderRadius: '4px', padding: '6px', pointerEvents: 'auto', cursor: 'pointer', transition: 'background 0.2s' }}
        onClick={() => setCameraExpanded(!cameraExpanded)}
        title={cameraExpanded ? "Minimize" : "Expand Camera"}
      >
        {cameraExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
      </button>
    </div>
-   <div id="hand-cursor" style={{position: 'absolute', width: '12px', height: '12px', borderRadius: '50%', backgroundColor: 'rgba(255, 0, 0, 0.7)', border: '2px solid white', boxShadow: '0 0 4px rgba(0,0,0,0.5)', zIndex: 2001, pointerEvents: 'none', display: 'none', transition: 'background-color 0.15s ease, transform 0.15s ease'}} />
+   <div id="hand-cursor" style={{position: 'absolute', width: '12px', height: '12px', borderRadius: '50%', backgroundColor: 'rgba(255, 0, 0, 0.7)', border: '2px solid white', boxShadow: '0 0 4px rgba(0,0,0,0.5)', zIndex: 1001, pointerEvents: 'none', display: 'none', transition: 'background-color 0.15s ease, transform 0.15s ease'}} />
   </>
  );
 }

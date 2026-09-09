@@ -51,12 +51,21 @@ export interface RegionBox {
   center: [number, number, number];
 }
 
-/** Union AABB (atlas units) of the skeletal parts belonging to `region`. */
-export function getRegionBox(atlas: Atlas | null | undefined, region: RegionId): RegionBox | null {
+/**
+ * Union AABB (atlas units) of the skeletal parts belonging to `region`.
+ * Pass `side` to keep only one side of a paired region (BodyParts3D names them
+ * "Left femur" / "Right femur"); returns null if that side has no parts.
+ */
+export function getRegionBox(
+  atlas: Atlas | null | undefined,
+  region: RegionId,
+  side?: 'left' | 'right',
+): RegionBox | null {
   const def = REGIONS.find((r) => r.id === region);
   if (!def || !atlas?.parts?.length) return null;
 
   const full = region === 'full-skeleton';
+  const lateral = side ? new RegExp(`\\b${side}\\b`, 'i') : null;
   const min: [number, number, number] = [Infinity, Infinity, Infinity];
   const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
   let n = 0;
@@ -64,6 +73,7 @@ export function getRegionBox(atlas: Atlas | null | undefined, region: RegionId):
   for (const p of atlas.parts) {
     if (p.system !== 'skeletal') continue;
     if (!full && !def.match.test(p.name)) continue;
+    if (lateral && !lateral.test(p.name)) continue;
     n++;
     for (let k = 0; k < 3; k++) {
       if (p.bounds[0][k] < min[k]) min[k] = p.bounds[0][k];
