@@ -15,6 +15,8 @@ import {initVoiceCommands, startVoice, stopVoice, type VoiceCommand} from '@/lib
 import { playIsolateSound } from '@/lib/audio-manager';
 import { classifyMRI, ClassificationResult } from '../lib/ai';
 import BoneReconstructionPanel from '@/components/vista/BoneReconstructionPanel';
+import HipPlanTools from '@/components/HipPlanTools';
+import SliceTo3DPanel from '@/components/mri3d/SliceTo3DPanel';
 
 const initial:SceneState={explode:0,visible:DEFAULT_VISIBLE,selected:[],isolate:false,view:'three-quarter',rotate:false,reset:0};
 export default function Home(){
@@ -87,6 +89,8 @@ export default function Home(){
     try {
       const result = await classifyMRI(file);
       setClassification(result);
+      // Size and lay the scan over the bone it was identified as.
+      sceneActionsRef.current?.alignToRegion(result.region, result.side);
     } catch (e) {
       console.error("Classification failed:", e);
     } finally {
@@ -104,6 +108,12 @@ export default function Home(){
      {/* NVIDIA VISTA-3D: CT/MRI volume -> skeletal mesh in this same scene. */}
      <BoneReconstructionPanel atlas={atlas} />
 
+     {/* One 2D MRI/CT slice -> identified structure rebuilt as a 3D solid. */}
+     <SliceTo3DPanel atlas={atlas} />
+
+     {/* Entry/exit + screw/rod trajectory tools — left hip bone only. */}
+     {chosen?.name?.toLowerCase() === 'left hip bone' && <HipPlanTools bounds={parts.get('FJ3288')?.bounds} />}
+
      {/* Surgical Plan UI Overlay */}
      {(classifying || classification) && (
        <div className="absolute right-6 top-24 w-80 bg-white/95 backdrop-blur shadow-lg rounded-xl overflow-hidden border border-slate-200 z-10 transition-all">
@@ -118,7 +128,7 @@ export default function Home(){
            {classifying ? (
              <div className="flex items-center gap-3 text-slate-500 animate-pulse">
                <div className="w-5 h-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"/>
-               Classifying organ via NVIDIA VISTA...
+               Identifying the scanned region...
              </div>
            ) : classification ? (
              <>
@@ -166,7 +176,30 @@ export default function Home(){
     <Button variant="outline" className="text-xs mr-2 font-semibold text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100" onClick={() => (window as any).__anatomyScene?.extractFemur()}>
        🦴 Extract Femur
     </Button>
-    <Button variant="ghost" className="mobile-only dock-layers" onClick={()=>openPanel('layers')} aria-label="Open system layers"><Layers3 size={20}/><span>Systems</span></Button><div className="explode-control"><div className="explode-label"><label id="explode-label">Explode anatomy</label><output>{Math.round(state.explode*100)}<span>%</span></output></div><Slider aria-labelledby="explode-label" min={0} max={100} step={1} value={[state.explode*100]} onValueChange={v=>setState(s=>({...s,explode:(Array.isArray(v)?v[0]:v)/100,view:(Array.isArray(v)?v[0]:v)>80?'front':s.view,rotate:false}))}/><div className="slider-endpoints"><span>Assembled</span><span>Every piece</span></div></div><Button variant="ghost" className="dock-reset" onClick={reset} aria-label="Assemble and reset"><RotateCcw size={18}/><span>Reset</span></Button></div>
+    <Button variant="ghost" className="mobile-only dock-layers" onClick={()=>openPanel('layers')} aria-label="Open system layers"><Layers3 size={20}/><span>Systems</span></Button>
+    <div className="explode-control" style={{ flexGrow: 1, padding: '0 1rem' }}>
+      <div className="explode-label" style={{ marginBottom: '8px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+        <label id="explode-label" style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#1e293b' }}>
+          {chosen?.name ?? 'Explode anatomy'}
+        </label>
+        {chosen && selected && (
+          <span style={{ fontSize: '0.85rem', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '400px' }}>
+            {explanation(chosen.name, selected.system) || 'Select a piece to learn more about its function.'}
+          </span>
+        )}
+      </div>
+      {!chosen && (
+        <>
+          <div style={{ display: 'flex', width: '100%', gap: '8px', alignItems: 'center' }}>
+            <Slider aria-labelledby="explode-label" min={0} max={100} step={1} value={[state.explode*100]} onValueChange={v=>setState(s=>({...s,explode:(Array.isArray(v)?v[0]:v)/100,view:(Array.isArray(v)?v[0]:v)>80?'front':s.view,rotate:false}))}/>
+            <output style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{Math.round(state.explode*100)}<span>%</span></output>
+          </div>
+          <div className="slider-endpoints" style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px' }}><span>Assembled</span><span>Every piece</span></div>
+        </>
+      )}
+    </div>
+    <Button variant="ghost" className="dock-reset" onClick={reset} aria-label="Assemble and reset"><RotateCcw size={18}/><span>Reset</span></Button>
+  </div>
   <footer className="studio-footer"><span>{state.explode>.8?'Drag to pan':'Drag to orbit'} <b>·</b> Pinch to zoom <b>·</b> Tap to inspect</span><Button variant="ghost" onClick={()=>{setDetails(false);setPanel(null);setAbout(true);}}>Source & credits <ArrowUpRight size={12}/></Button></footer>
   {progress<100&&!error&&<div className="loading glass" role="status"><Activity size={18}/><div><strong>Preparing the anatomy</strong><span>{progress}% · Loading {atlas?.parts.length.toLocaleString()??'2,234'} pieces</span><div className="loading-track"><i style={{width:`${progress}%`}}/></div></div></div>}
   {error&&<div className="loading glass error" role="alert"><p>{error}</p><Button variant="ghost" onClick={()=>location.reload()}>Reload viewer</Button></div>}
