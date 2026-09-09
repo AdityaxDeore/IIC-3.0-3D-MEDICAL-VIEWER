@@ -6,12 +6,13 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --port 3016",
+    "dev": "concurrently \"vite --host 0.0.0.0 --port 3016\" \"npm run dev --prefix public/brainchop -- --port 3017\"",
     "build": "vite build",
     "build:vercel": "vite build",
     "check": "tsc --noEmit",
     "vista": "node server/vista-proxy.mjs",
-    "test": "node scripts/test-e2e.mjs"
+    "test": "node scripts/test-e2e.mjs",
+    "test:atlas-fit": "node scripts/validate-atlas-fit.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
@@ -47,6 +48,7 @@
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
+    "concurrently": "^10.0.5",
     "meshoptimizer": "^1.2.0",
     "oxfmt": "0.61.0",
     "oxlint": "1.76.0",
