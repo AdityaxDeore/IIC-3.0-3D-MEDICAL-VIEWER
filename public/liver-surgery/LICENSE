@@ -1,0 +1,423 @@
+LiverSurgerySimWeb License
+Copyright (c) 2026 MEIDAI KASAI MD
+All rights reserved.
+
+This software is a proprietary research and educational
+demonstration. All rights are reserved by the author. Use of this
+software is subject to the strict terms below.
+
+
+1. PERMITTED USES
+
+   a) Accessing and using the hosted web application at its
+      official public URL for personal academic study,
+      education, and non-commercial research evaluation.
+      This includes loading the user's own patient-derived
+      anatomical meshes for research or educational review,
+      provided that the data is de-identified, that the
+      user's institutional and legal obligations under
+      Section 10 are met, and that the resulting output is
+      not used for any purpose described in Section 2(f) or
+      Section 5(b).
+
+   b) Viewing the publicly accessible source code (HTML,
+      JavaScript) for the sole purpose of understanding the
+      user interface behavior.
+
+   c) Citing this work in academic publications using the
+      citation specified in Section 3.
+
+   d) Taking screenshots or screen recordings for personal
+      educational purposes only, provided that:
+      (i)  the author is clearly credited, and
+      (ii) the recording is not incorporated into any
+           commercial product, paid course, advertisement,
+           or promotional material.
+
+
+2. PROHIBITED USES
+
+   a) Copying, forking, cloning, mirroring, or redistributing
+      the source code, the compiled WebAssembly binary
+      (softbody.wasm), the JavaScript glue code (softbody.js),
+      the data files (softbody.data), or any portion thereof,
+      except for a single personal backup copy.
+
+   b) Modifying any part of this software without prior
+      written permission from the author. This restriction
+      does NOT apply to third-party components listed in
+      Section 6, which remain governed by their own licenses.
+
+   c) Creating derivative works based on this software, its
+      algorithms, its data structures, or its user interface
+      design.
+
+   d) Hosting this software, any part thereof, or any
+      derivative on any other domain, server, CDN,
+      distribution platform, cloud service, or local server
+      beyond a single personal machine for evaluation.
+
+   e) Using this software or any derivative in any commercial
+      product, service, Software-as-a-Service offering,
+      educational curriculum offered for compensation, paid
+      training program, paid workshop, or for-profit
+      demonstration, without the prior written permission
+      required by Section 5(a).
+
+   f) Using this software or any derivative for clinical
+      diagnosis, treatment, intraoperative guidance, or any
+      other form of medical decision making involving human
+      patients. Loading patient-derived anatomy for research
+      or educational review is not prohibited by this
+      subsection and is permitted under Section 1(a); the
+      uses enumerated in Section 5(b), including surgical
+      planning and surgical training for academic credit,
+      are governed by Section 5 and require prior written
+      permission.
+
+   g) Reverse engineering, decompiling, disassembling,
+      extracting intermediate representations, lifting to
+      higher-level source code, or otherwise attempting to
+      derive the source code, algorithms, or internal
+      structure of the WebAssembly binary (softbody.wasm) or
+      any other compiled component, by any means, including
+      but not limited to automated decompilation tools,
+      debuggers, binary analysis tools, or manual analysis.
+
+   h) Extracting, repackaging, or repurposing the WebAssembly
+      binary, JavaScript modules, mesh data files
+      (softbody.data), or any other distributed asset for use
+      in another application, project, or service.
+
+   i) Attempting to bypass, circumvent, or disable any access
+      controls, license checks, or usage restrictions that
+      may be implemented in this software.
+
+   j) Analyzing the software to develop a competing product,
+      service, or academic publication that implements
+      functionally equivalent algorithms or methods without
+      independent derivation.
+
+   k) Removing, altering, or obscuring any copyright notices,
+      author attribution, license text, or in-application
+      branding.
+
+   l) Using this software to train, fine-tune, or otherwise
+      develop any machine learning model, including but not
+      limited to neural networks, large language models, or
+      code synthesis systems.
+
+   m) Uploading any part of this software, its source code,
+      or its binaries to any platform that permits downloading
+      by third parties (including but not limited to GitHub,
+      GitLab, Bitbucket, Hugging Face, npm, CDNs, file-sharing
+      services, or any mirror repository).
+
+
+3. CITATION REQUIREMENT
+
+   Any academic publication, presentation, report, thesis,
+   lecture, or public communication that references this
+   work, its methods, its user interface, or its results must
+   include the following citation:
+
+      Kasai, M. (2026). LiverSurgerySimWeb: A browser-based
+      liver surgery simulator with soft-body physics and
+      segment-aware cutting. [Software].
+      https://github.com/meimeimei1223/LiverSurgerySimWeb
+
+   Citation is required regardless of whether the work is
+   used, evaluated, or only discussed.
+
+   Alternatively, citing the associated paper (Kasai, M.,
+   "BLISS: A Browser-Based Cross-Platform Patient-Specific
+   Liver Surgery Simulator with AR/VR Support", AE-CAI |
+   CARE | OR 2.0 | PRiSM Workshop, MICCAI 2026) satisfies
+   this requirement.
+
+
+4. RESERVATION OF RIGHTS
+
+   All intellectual property rights in this software,
+   including but not limited to copyrights, trade secrets,
+   know-how, and any future patents that may be filed, are
+   retained by the author. Nothing in this license shall be
+   construed as granting any such rights, express or implied,
+   by estoppel or otherwise, except as explicitly stated in
+   Section 1.
+
+   The author reserves the right to seek patent protection
+   in any jurisdiction at any time on any algorithm, method,
+   or system contained in or related to this software.
+
+
+5. COMMERCIAL AND CLINICAL USE
+
+   Any of the following uses require prior written permission
+   from the author and a separate executed license agreement:
+
+   a) Any commercial use of any kind, including but not
+      limited to internal use by for-profit entities.
+
+   b) Clinical use on human patients, including but not
+      limited to diagnosis, surgical planning, intraoperative
+      guidance, surgical training programs that result in
+      clinical credentialing, or post-operative evaluation.
+      This subsection does not cover the loading of
+      patient-derived anatomy for research or educational
+      review, which is permitted under Section 1(a) without
+      separate permission.
+
+   c) Use in the development, testing, validation,
+      verification, or regulatory submission of any medical
+      device or medical software product, whether Class I,
+      II, III, or any equivalent classification in any
+      jurisdiction.
+
+   d) Use by for-profit entities of any size, including but
+      not limited to internal research and development,
+      competitive intelligence, employee training,
+      demonstration to clients or investors, or inclusion in
+      marketing materials.
+
+   e) Integration into any paid educational curriculum,
+      certification program, continuing medical education
+      (CME) course, commercial training platform, or
+      e-learning service.
+
+   f) Use in grant applications, research proposals, or
+      funding requests where the software, its derivatives,
+      or products based on it are intended to be
+      commercialized.
+
+   g) Demonstration at commercial trade shows, industry
+      conferences with paid attendance, or promotional
+      events.
+
+   The author actively seeks commercial licensing partners
+   and will evaluate such requests in good faith.
+
+   For licensing inquiries, contact: meidai1223@gmail.com
+
+
+6. THIRD-PARTY COMPONENTS
+
+   This project incorporates third-party libraries that are
+   statically compiled into softbody.wasm. These libraries
+   are governed by their own respective licenses. Use of this
+   software requires compliance with each of these licenses.
+   The restrictions in Sections 1 and 2 of this license do
+   NOT apply to third-party components; those components
+   remain governed solely by their original licenses.
+
+   The following third-party components are incorporated:
+
+   a) Dear ImGui (Immediate Mode Graphical User Interface)
+      Copyright (c) 2014-2024 Omar Cornut
+      License: MIT License
+      Source: https://github.com/ocornut/imgui
+
+   b) GLM (OpenGL Mathematics)
+      Copyright (c) 2005 G-Truc Creation
+      License: MIT License
+      Source: https://github.com/g-truc/glm
+
+   c) stb_image (Image Loading Library)
+      Author: Sean Barrett
+      License: MIT License OR Public Domain (dual license)
+      Source: https://github.com/nothings/stb
+
+   d) stb_truetype (TrueType Font Library)
+      Author: Sean Barrett
+      License: MIT License OR Public Domain (dual license)
+      Source: https://github.com/nothings/stb
+
+   e) tinyobjloader (Wavefront OBJ File Loader)
+      Copyright (c) 2012-2019 Syoyo Fujita and many
+      contributors
+      License: MIT License
+      Source: https://github.com/tinyobjloader/tinyobjloader
+
+   f) GLEW (OpenGL Extension Wrangler Library)
+      Copyright (c) 2002-2007, Milan Ikits
+      Copyright (c) 2002-2007, Marcelo E. Magallon
+      License: Modified BSD License / MIT License / SGI Free
+               Software License B (tri-license)
+      Source: https://glew.sourceforge.net
+
+   g) GLFW (Multi-platform Windowing Library)
+      Copyright (c) 2002-2006 Marcus Geelnard
+      Copyright (c) 2006-2019 Camilla Löwy
+      License: zlib License
+      Source: https://www.glfw.org
+
+   All original copyright notices, license texts, and
+   attribution statements for third-party components must be
+   preserved.
+
+   The static compilation of these permissively-licensed
+   third-party components into softbody.wasm does NOT grant
+   any additional rights to the proprietary portions of this
+   software authored by MEIDAI KASAI MD.
+
+
+7. NO WARRANTY
+
+   THIS SOFTWARE IS PROVIDED "AS IS" AND WITHOUT WARRANTY OF
+   ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT
+   LIMITED TO THE IMPLIED WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND
+   NON-INFRINGEMENT.
+
+   THE AUTHOR MAKES NO REPRESENTATION OR WARRANTY THAT THE
+   SOFTWARE IS FREE OF DEFECTS, VIRUSES, OR OTHER HARMFUL
+   COMPONENTS, OR THAT IT WILL OPERATE UNINTERRUPTED OR
+   ERROR-FREE IN ANY BROWSER, OPERATING SYSTEM, OR HARDWARE
+   CONFIGURATION.
+
+
+8. NOT A MEDICAL DEVICE
+
+   THIS SOFTWARE HAS NOT BEEN REVIEWED, CLEARED, OR APPROVED
+   BY THE PHARMACEUTICALS AND MEDICAL DEVICES AGENCY (PMDA)
+   OF JAPAN, THE U.S. FOOD AND DRUG ADMINISTRATION (FDA),
+   THE EUROPEAN MEDICINES AGENCY (EMA), OR ANY OTHER
+   REGULATORY AUTHORITY.
+
+   THIS SOFTWARE IS NOT A MEDICAL DEVICE AND IS NOT INTENDED
+   TO DIAGNOSE, TREAT, CURE, OR PREVENT ANY DISEASE.
+
+   THE SOFT-BODY PHYSICS SIMULATION IN THIS SOFTWARE IS A
+   SIMPLIFIED MODEL FOR EDUCATIONAL AND DEMONSTRATIVE
+   PURPOSES. IT DOES NOT ACCURATELY REPRESENT THE
+   BIOMECHANICAL BEHAVIOR OF REAL HUMAN LIVER TISSUE AND
+   MUST NOT BE RELIED UPON FOR ANY CLINICAL DECISION MAKING
+   OR SURGICAL PLANNING.
+
+   ANY SEGMENT IDENTIFICATION (S1-S8) AND VOLUME CALCULATION
+   FEATURES ARE DEMONSTRATIVE AND HAVE NOT BEEN VALIDATED
+   FOR CLINICAL USE.
+
+
+9. LIMITATION OF LIABILITY
+
+   TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO
+   EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+   INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+   (INCLUDING BUT NOT LIMITED TO PROCUREMENT OF SUBSTITUTE
+   GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; LOSS OF
+   GOODWILL; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+   ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+   LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+   ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+   IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+   THIS LIMITATION SPECIFICALLY APPLIES TO ANY DAMAGE
+   ARISING FROM CLINICAL, COMMERCIAL, OR OTHER UNAUTHORIZED
+   USE OF THE SOFTWARE, AS WELL AS TO ANY RELIANCE ON
+   SIMULATION RESULTS, VOLUME CALCULATIONS, OR SEGMENT
+   IDENTIFICATION FOR MEDICAL PURPOSES.
+
+
+10. USER DATA AND PRIVACY
+
+    This software processes user-supplied OBJ files entirely
+    within the user's browser. The author does not collect,
+    transmit, or store user-supplied medical or anatomical
+    data on any server operated by the author.
+
+    Users are solely responsible for ensuring that any data
+    they load or process using this software complies with
+    applicable privacy and data protection laws, including
+    but not limited to:
+
+    - The Act on the Protection of Personal Information
+      (Japan)
+    - The Health Insurance Portability and Accountability
+      Act (HIPAA, USA)
+    - The General Data Protection Regulation (GDPR, EU)
+    - Any other applicable regional, national, or
+      institutional regulations.
+
+    BECAUSE ALL PROCESSING OCCURS LOCALLY IN THE USER'S
+    BROWSER, NO ANATOMICAL DATA LOADED BY THE USER IS
+    TRANSMITTED TO THE AUTHOR OR TO ANY THIRD PARTY. USERS
+    MUST NEVERTHELESS LOAD ONLY DE-IDENTIFIED DATA, AND
+    REMAIN SOLELY RESPONSIBLE FOR COMPLIANCE WITH THE
+    REGULATIONS LISTED ABOVE AND WITH THEIR OWN
+    INSTITUTIONAL REQUIREMENTS.
+
+    The author disclaims all liability for any privacy
+    violations, data breaches, or regulatory non-compliance
+    arising from user activity.
+
+
+11. TERMINATION AND ENFORCEMENT
+
+    Any violation of the terms of this license automatically
+    and immediately terminates all rights granted hereunder.
+    Upon termination, the violating party must:
+
+    a) Cease all use of the software;
+    b) Remove any locally cached or stored copies, including
+       browser caches, service worker caches, and local
+       storage;
+    c) Destroy all copies in their possession, including any
+       derivative works, analyses, or backups;
+    d) Provide written confirmation of compliance upon
+       request.
+
+    The author reserves the right to:
+
+    e) Revoke access to the hosted service at any time, for
+       any reason, without prior notice;
+    f) Pursue all available legal remedies, including
+       injunctive relief, monetary damages, disgorgement of
+       profits, and attorneys' fees, for any violation of
+       this license;
+    g) Report unauthorized use to relevant authorities,
+       hosting platforms, and professional organizations.
+
+
+12. GOVERNING LAW AND JURISDICTION
+
+    This license shall be governed by and construed in
+    accordance with the laws of Japan, without regard to
+    conflict of law principles. Any dispute, claim, or
+    controversy arising from or related to this license
+    shall be subject to the exclusive jurisdiction of the
+    courts of Sapporo, Hokkaido, Japan.
+
+    For international users, this choice of law and venue
+    clause applies to the maximum extent permitted by
+    applicable local law.
+
+
+13. SEVERABILITY
+
+    If any provision of this license is held to be
+    unenforceable or invalid by a court of competent
+    jurisdiction, such unenforceability or invalidity shall
+    not affect the remaining provisions, which shall remain
+    in full force and effect.
+
+
+14. ENTIRE AGREEMENT
+
+    This license constitutes the entire agreement between
+    the parties with respect to the software. No amendment
+    or modification of this license shall be binding unless
+    in writing and signed by the author. No waiver of any
+    provision shall be effective unless explicitly made in
+    writing by the author.
+
+
+CONTACT
+
+    For licensing inquiries, commercial licensing,
+    clinical use permissions, collaboration requests, or
+    notification of license violations:
+
+    MEIDAI KASAI MD
+    Email: meidai1223@gmail.com
+    Repository: https://github.com/meimeimei1223/LiverSurgerySimWeb

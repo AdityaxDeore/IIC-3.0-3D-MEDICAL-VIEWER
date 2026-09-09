@@ -533,7 +533,7 @@ mriEditorRef.current(e.target.files[0]);
  const getAppUrl = (app: 'brainchop' | 'yale' | 'surgery') => {
    if (app === 'brainchop') return import.meta.env.DEV ? 'http://localhost:3017/' : '/brainchop/dist/index.html';
    if (app === 'yale') return import.meta.env.DEV ? 'http://localhost:3018/' : '/anatomy/dist/index.html';
-   if (app === 'surgery') return import.meta.env.DEV ? 'http://localhost:3019/' : '/surgery/dist/index.html';
+   if (app === 'surgery') return '/liver-surgery/index.html';
    return '';
  };
 

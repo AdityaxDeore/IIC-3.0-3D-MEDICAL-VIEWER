@@ -1,0 +1,3 @@
+# Local development backups (kept on disk for quick rollback, not deployed)
+index_v*_backup.html
+index_backup_v*.html
