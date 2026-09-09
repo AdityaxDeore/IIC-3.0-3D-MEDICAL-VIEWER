@@ -13,6 +13,8 @@ import { initializeHandTracking, startCamera, startTracking } from '../lib/hand-
 import { InteractionCommand } from '../lib/gestures';
 import { playConfirmationSound, playGrabSound, playSnapSound } from '@/lib/audio-manager';
 import { MriEditor } from '../lib/mri-editor';
+import { fitToBone, measureContent, type ImageContent } from '@/lib/mri-align';
+import { getRegionBox, type RegionId } from '@/lib/vista/atlas-regions';
 
 import { Maximize2, Minimize2 } from 'lucide-react';
 
@@ -21,6 +23,8 @@ export interface SceneActions {
   setMode: (mode: 'standard' | 'exoskeleton' | 'mri' | 'hidden') => void;
   setMriTarget: (target: 'body' | 'mri') => void;
   autoAlignToBone: () => void;
+  /** Lay the loaded scan over a named skeletal region. */
+  alignToRegion: (region: RegionId, side: 'left' | 'right' | null) => void;
   takeSnapshot?: () => Promise<string>;
 }
 
@@ -39,6 +43,14 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
  const modeRef = useRef(mode);
  const transformControlsRef = useRef<TransformControls | null>(null);
  const mriEditorRef = useRef<MriEditor | null>(null);
+ // Where the anatomy sits inside the loaded frame; set once the texture decodes.
+ const mriContentRef = useRef<ImageContent | null>(null);
+ // Region the scan is laid over. The sample scan is a left femoral neck study.
+ const alignTargetRef = useRef<{region: RegionId; side: 'left' | 'right' | null}>({region: 'femur', side: 'left'});
+ // Depth the last alignment put the plane at, so the Depth slider offsets from it.
+ const alignDepthRef = useRef(0.4);
+ // Set when a region was identified before the scan finished decoding.
+ const pendingAlignRef = useRef(false);
  const dirtyRef = useRef<boolean>(true);
  mriTargetRef.current = mriTarget;
  transformModeRef.current = transformMode;
@@ -57,40 +69,34 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
     dirtyRef.current = true;
   };
 
+  /**
+   * Lay the scan over a skeletal region: the imaged anatomy is measured, sized
+   * to that region's bounding box with the frame's aspect ratio intact, and
+   * centred on it at the bone's own depth so the plane slices through.
+   */
+  const alignToRegion = (region: RegionId, side: 'left' | 'right' | null, silent = false) => {
+    alignTargetRef.current = {region, side};
+    const mesh = mriEditorRef.current?.mesh;
+    const content = mriContentRef.current;
+    // Identified before the scan decoded — the decode callback will retry.
+    if (!mesh || !content) { pendingAlignRef.current = true; return; }
+    // Fall back to both sides when the atlas has no parts for the named one.
+    const box = getRegionBox(atlas, region, side ?? undefined) ?? getRegionBox(atlas, region);
+    if (!box) return;
+
+    const fit = fitToBone(content, box);
+    mesh.scale.set(fit.scaleX, fit.scaleY, 1);
+    mesh.position.set(fit.position[0], fit.position[1], fit.position[2]);
+    mesh.rotation.set(0, 0, 0);
+    alignDepthRef.current = fit.position[2];
+
+    dirtyRef.current = true;
+    if (!silent) playConfirmationSound();
+  };
+
   const autoAlignToBone = () => {
-    if (mriEditorRef.current && mriEditorRef.current.mesh) {
-      const femurRightIdx = atlas.parts.findIndex(p => p.id === 'FMA24474');
-      const femurLeftIdx = atlas.parts.findIndex(p => p.id === 'FMA24475');
-      // The user specified the Left Femoral Neck!
-      const targetIdx = femurLeftIdx;
-      
-      if (targetIdx >= 0) {
-         const bounds = atlas.parts[targetIdx].bounds;
-         const min = new T.Vector3().fromArray(bounds[0]);
-         const max = new T.Vector3().fromArray(bounds[1]);
-         const center = min.clone().add(max).multiplyScalar(0.5);
-         const length = max.y - min.y;
-         
-         const m = mriEditorRef.current.mesh;
-         m.position.copy(center);
-         // Submerge exactly in the center of the femur
-         m.position.z -= 0.02; // Push slightly back so it slices the bone
-         m.position.y += 0.12; // Shift up because the image femur is in the lower half
-         m.position.x += 0.06; // Shift right to match the left femur placement in the image
-         
-         // The femur in the image takes up about 50% of the vertical space.
-         // Plane is 1.5 units high. We want 1.5 * scale * 0.5 = length.
-         // So scale = length / 0.75
-         const targetScale = length / 0.75; 
-         m.scale.set(targetScale, targetScale, 1);
-         
-         // Inward angle for left femur
-         m.rotation.set(0, 0, -0.12);
-         
-         dirtyRef.current = true;
-         playConfirmationSound();
-      }
-    }
+    const {region, side} = alignTargetRef.current;
+    alignToRegion(region, side);
   };
 
   const snapshotRequestRef = useRef<((dataUrl: string) => void) | null>(null);
@@ -109,6 +115,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
         dirtyRef.current = true;
       },
       autoAlignToBone,
+      alignToRegion,
       takeSnapshot: () => {
          return new Promise((resolve) => {
             snapshotRequestRef.current = resolve;
@@ -123,7 +130,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   const abort=new AbortController();
   let renderer:T.WebGLRenderer;
   try{renderer=new T.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});}catch{onError('This browser could not start the 3D viewer. Please try a browser with WebGL enabled.');return;}
-  renderer.setPixelRatio(Math.min(devicePixelRatio,innerWidth<768?1.5:2));renderer.setClearColor('#f2f3f3');renderer.outputColorSpace=T.SRGBColorSpace;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.12;el.appendChild(renderer.domElement);
+  renderer.setPixelRatio(Math.min(devicePixelRatio,innerWidth<768?1.5:2));renderer.setClearColor('#f2f3f3');renderer.outputColorSpace=T.SRGBColorSpace;renderer.toneMapping=T.CineonToneMapping;renderer.toneMappingExposure=0.92;el.appendChild(renderer.domElement);
   renderer.domElement.setAttribute('aria-label','Interactive human anatomy. Drag to orbit, pinch or scroll to zoom, and tap a structure to inspect it.');
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(34,1,.005,100),controls=new OrbitControls(camera,renderer.domElement);
   const trackball=new TrackballControls(camera,renderer.domElement);
@@ -137,17 +144,28 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
       scene.remove(mriEditorRef.current.mesh);
       mriEditorRef.current.dispose();
     }
-    const texture = new T.TextureLoader().load(url, (tex) => { 
-      if (mriEditorRef.current && mriEditorRef.current.mesh) {
-        const img = tex.image;
-        if (img && img.width && img.height) {
-          const aspect = img.width / img.height;
-          // Only adjust width to match the aspect ratio; height remains 1 relative to geometry
-          mriEditorRef.current.mesh.scale.set(aspect, 1, 1);
-          mriEditorRef.current.update();
+    // A new scan invalidates the previous frame's measurements.
+    mriContentRef.current = null;
+    const texture = new T.TextureLoader().load(url, (tex) => {
+      const img = tex.image;
+      if (img && (img.naturalWidth || img.width)) {
+        // Measure where the anatomy sits in the frame so it can be sized to a bone.
+        const content = measureContent(img);
+        mriContentRef.current = content;
+        const mesh = mriEditorRef.current?.mesh;
+        if (mesh) {
+          // Frame aspect, as a floor in case there is no region box to fit to.
+          mesh.scale.set(content.aspect, 1, 1);
+          mriEditorRef.current?.update();
         }
+        // Size it against a bone as soon as it is measurable. Without this the
+        // plane keeps the geometry's 1.5 m default — nearly as tall as the whole
+        // body — until something explicitly asks for an alignment.
+        pendingAlignRef.current = false;
+        const {region, side} = alignTargetRef.current;
+        alignToRegion(region, side, true);
       }
-      dirty = true; 
+      dirty = true;
     });
     mriTextureRef.current = texture;
     const geo = new T.PlaneGeometry(1.5, 1.5);
@@ -234,9 +252,9 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
   }
 
   const pmrem=new T.PMREMGenerator(renderer),room=new RoomEnvironment(),env=pmrem.fromScene(room,.04);scene.environment=env.texture;room.dispose();pmrem.dispose();
-  scene.add(new T.HemisphereLight(0xffffff,0xa7acb2,1.05));
-  const key=new T.DirectionalLight(0xfffaf4,2.3);key.position.set(-2,4,3);scene.add(key);
-  const rim=new T.DirectionalLight(0xe9f0ff,1.8);rim.position.set(2,2,-3);scene.add(rim);
+  scene.add(new T.HemisphereLight(0xffffff,0xa7acb2,0.85));
+  const key=new T.DirectionalLight(0xfffaf4,1.8);key.position.set(-2,4,3);scene.add(key);
+  const rim=new T.DirectionalLight(0xe9f0ff,1.35);rim.position.set(2,2,-3);scene.add(rim);
   const ground=new T.Mesh(new T.CircleGeometry(30,96),new T.MeshStandardMaterial({color:0xd5d9dc,roughness:1}));ground.rotation.x=-Math.PI/2;ground.position.y=-.019;scene.add(ground);
   const platform=new T.Mesh(new T.CylinderGeometry(.68,.7,.028,100),new T.MeshStandardMaterial({color:0xeeeeec,metalness:.12,roughness:.67}));platform.position.y=-.016;scene.add(platform);
   const ring=new T.Mesh(new T.RingGeometry(.63,.632,128),new T.MeshBasicMaterial({color:0x8c969f,transparent:true,opacity:.4,side:T.DoubleSide}));ring.rotation.x=-Math.PI/2;ring.position.y=.001;scene.add(ring);
@@ -452,7 +470,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
           rotActive = true;
           playGrabSound();
           rotSX = hx; rotSY = hy; rotSRoll = cmd.roll;
-          controls.target.set(0, 0, 0);   // pivot at the feet, between the legs
+          controls.target.set(0, 1.15, 0);   // pivot around the chest, not the feet
           controls.update();
           dirty = true;
           dirtyRef.current = true;
@@ -518,6 +536,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
    <div style={{ position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', zIndex: 1002, display: 'flex', gap: '8px', background: 'rgba(255,255,255,0.8)', padding: '6px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
     <button onClick={() => setMode('standard')} style={{background: mode==='standard'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>Standard</button>
     <button onClick={() => setMode('mri')} style={{background: mode==='mri'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>MRI Mode</button>
+    <button onClick={() => window.open('/brainchop/index.html', '_blank')} style={{background: 'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'}}>🧠 Brainchop</button>
    </div>
 
    {mode === 'mri' && (
@@ -564,10 +583,11 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
               
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', marginTop: '4px' }}>
                  <span style={{width: '40px'}}>Depth</span>
-                 <input type="range" min="-2" max="2" step="0.05" defaultValue="0" onChange={e => {
+                 {/* Offset from the aligned depth, so nudging it keeps the plane on the bone. */}
+                 <input type="range" min="-0.3" max="0.3" step="0.005" defaultValue="0" onChange={e => {
                     if (mriEditorRef.current && mriEditorRef.current.mesh) {
                        const m = mriEditorRef.current.mesh;
-                       m.position.z = parseFloat(e.target.value);
+                       m.position.z = alignDepthRef.current + parseFloat(e.target.value);
                        dirtyRef.current = true;
                     }
                  }} />
