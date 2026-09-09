@@ -261,6 +261,9 @@ export default function BoneReconstructionPanel({ atlas }: { atlas?: Atlas | nul
                 ))}
               </select>
             </div>
+            <button style={{ ...primary, background: '#8b5cf6' }} disabled={busy} onClick={() => window.open('/brainchop/index.html', '_blank')}>
+              🧠 Brain Segmentation (Brainchop)
+            </button>
             <button style={primary} disabled={busy} onClick={() => organRef.current?.click()}>
               Segment & reconstruct structure
             </button>
