@@ -560,19 +560,11 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
    <div style={{ position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', zIndex: 1002, display: 'flex', gap: '8px', background: 'rgba(255,255,255,0.8)', padding: '6px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
     <button onClick={() => setMode('standard')} style={{background: mode==='standard'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>Standard</button>
     <button onClick={() => setMode('mri')} style={{background: mode==='mri'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>MRI Mode</button>
-    <button onClick={() => setMode('brainchop')} style={{background: mode==='brainchop'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'}}>🧠 Brainchop</button>
-    <button onClick={() => setMode('yale')} style={{background: mode==='yale'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'}}>🏛️ Yale Anatomy</button>
+    <button onClick={() => window.open(getAppUrl('brainchop'), '_blank')} style={{background: 'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'}}>🧠 Brainchop</button>
+    <button onClick={() => window.open(getAppUrl('yale'), '_blank')} style={{background: 'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'}}>🏛️ Yale Anatomy</button>
     <button onClick={() => setMode('surgical_simulator')} style={{background: mode==='surgical_simulator'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'}}>🔪 Surgical Sim (Yale)</button>
-    <button onClick={() => setMode('surgery')} style={{background: mode==='surgery'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'}}>🏥 Surgery Feature</button>
+    <button onClick={() => window.open(getAppUrl('surgery'), '_blank')} style={{background: 'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'}}>🏥 Surgery Feature</button>
    </div>
-
-   {(mode === 'brainchop' || mode === 'yale' || mode === 'surgery') && (
-     <iframe 
-       src={getAppUrl(mode)} 
-       style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none', zIndex: 1001, background: '#f8fafc' }}
-       title={mode}
-     />
-   )}
 
    {mode === 'surgical_simulator' && (
      <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1001, background: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', flexDirection: 'column' }}>
