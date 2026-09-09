@@ -548,7 +548,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
  const getAppUrl = (app: 'brainchop' | 'yale' | 'surgery') => {
    if (app === 'brainchop') return import.meta.env.DEV ? 'http://localhost:3017/' : '/brainchop/dist/index.html';
    if (app === 'yale') return import.meta.env.DEV ? 'http://localhost:3018/' : '/anatomy/dist/index.html';
-   if (app === 'surgery') return '/liver-surgery/index.html';
+   if (app === 'surgery') return import.meta.env.DEV ? 'http://localhost:3019/' : '/liver-surgery/index.html';
    return '';
  };
 
@@ -648,7 +648,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
      bottom: cameraExpanded ? 'auto' : '16px',
      right: cameraExpanded ? 'auto' : '16px',
      width: cameraExpanded ? '100vw' : '280px',
-     height: cameraExpanded ? '100vh' : 'auto',
+     height: cameraExpanded ? '100vh' : '210px',
      aspectRatio: cameraExpanded ? 'auto' : '4/3',
      zIndex: cameraExpanded ? 2000 : 2000,
      borderRadius: cameraExpanded ? '0' : '12px',
