@@ -6,7 +6,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "concurrently \"vite --host 0.0.0.0 --port 3016\" \"npm run dev --prefix public/brainchop -- --port 3017\"",
+    "dev": "concurrently \"vite --host 0.0.0.0 --port 3016\" \"npm run dev --prefix public/brainchop -- --port 3017\" \"npm run dev --prefix anatomy -- --port 3018\"",
     "build": "vite build",
     "build:vercel": "vite build",
     "check": "tsc --noEmit",

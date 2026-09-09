@@ -537,6 +537,7 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
     <button onClick={() => setMode('standard')} style={{background: mode==='standard'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>Standard</button>
     <button onClick={() => setMode('mri')} style={{background: mode==='mri'?'#e2e8f0':'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer'}}>MRI Mode</button>
     <button onClick={() => window.open(import.meta.env.DEV ? 'http://localhost:3017/' : '/brainchop/dist/index.html', '_blank')} style={{background: 'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'}}>🧠 Brainchop</button>
+    <button onClick={() => window.open(import.meta.env.DEV ? 'http://localhost:3018/' : '/anatomy/dist/index.html', '_blank')} style={{background: 'transparent', padding: '6px 12px', borderRadius: '6px', fontWeight: 500, fontSize: '14px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'}}>🏛️ Yale Anatomy</button>
    </div>
 
    {mode === 'mri' && (
