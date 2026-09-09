@@ -505,11 +505,28 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
           cursor.style.backgroundColor = cmd.type === 'SELECT' ? 'rgba(0, 150, 255, 0.9)' : 'rgba(255, 0, 0, 0.7)';
           cursor.style.transform = cmd.type === 'SELECT' ? 'scale(1.3)' : 'scale(1)';
         }
-        const target = document.elementFromPoint(lastX, lastY) || renderer.domElement;
-        target.dispatchEvent(new PointerEvent('pointermove', { pointerId: 99, clientX: lastX, clientY: lastY, button: -1, buttons: 0 }));
+        let target = document.elementFromPoint(lastX, lastY) || renderer.domElement;
+        
+        // Attempt to pierce same-origin iframes
+        if (target.tagName === 'IFRAME') {
+          try {
+            const iframeDoc = (target as HTMLIFrameElement).contentDocument;
+            if (iframeDoc) {
+              const rect = target.getBoundingClientRect();
+              const innerX = lastX - rect.left;
+              const innerY = lastY - rect.top;
+              target = iframeDoc.elementFromPoint(innerX, innerY) || target;
+            }
+          } catch (e) {
+            // Cross-origin iframe in dev, ignore
+          }
+        }
+
+        target.dispatchEvent(new PointerEvent('pointermove', { pointerId: 99, clientX: lastX, clientY: lastY, button: -1, bubbles: true, cancelable: true }));
         if (cmd.type === 'SELECT') {
-          target.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1 }));
-          target.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 0 }));
+          target.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 1, bubbles: true, cancelable: true }));
+          target.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99, clientX: lastX, clientY: lastY, button: 0, buttons: 0, bubbles: true, cancelable: true }));
+          target.dispatchEvent(new MouseEvent('click', { clientX: lastX, clientY: lastY, button: 0, bubbles: true, cancelable: true }));
         }
       }
     });
@@ -635,7 +652,7 @@ mriEditorRef.current(e.target.files[0]);
      width: cameraExpanded ? '100vw' : '280px',
      height: cameraExpanded ? '100vh' : 'auto',
      aspectRatio: cameraExpanded ? 'auto' : '4/3',
-     zIndex: cameraExpanded ? 50 : 1000,
+     zIndex: cameraExpanded ? 2000 : 2000,
      borderRadius: cameraExpanded ? '0' : '12px',
      overflow: 'hidden',
      pointerEvents: 'none',
@@ -646,14 +663,14 @@ mriEditorRef.current(e.target.files[0]);
      <canvas id="hand-canvas" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }}></canvas>
      
      <button 
-       style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 1001, background: 'rgba(0,0,0,0.2)', color: 'white', border: 'none', borderRadius: '4px', padding: '6px', pointerEvents: 'auto', cursor: 'pointer', transition: 'background 0.2s' }}
+       style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 2001, background: 'rgba(0,0,0,0.2)', color: 'white', border: 'none', borderRadius: '4px', padding: '6px', pointerEvents: 'auto', cursor: 'pointer', transition: 'background 0.2s' }}
        onClick={() => setCameraExpanded(!cameraExpanded)}
        title={cameraExpanded ? "Minimize" : "Expand Camera"}
      >
        {cameraExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
      </button>
    </div>
-   <div id="hand-cursor" style={{position: 'absolute', width: '12px', height: '12px', borderRadius: '50%', backgroundColor: 'rgba(255, 0, 0, 0.7)', border: '2px solid white', boxShadow: '0 0 4px rgba(0,0,0,0.5)', zIndex: 1001, pointerEvents: 'none', display: 'none', transition: 'background-color 0.15s ease, transform 0.15s ease'}} />
+   <div id="hand-cursor" style={{position: 'absolute', width: '12px', height: '12px', borderRadius: '50%', backgroundColor: 'rgba(255, 0, 0, 0.7)', border: '2px solid white', boxShadow: '0 0 4px rgba(0,0,0,0.5)', zIndex: 2001, pointerEvents: 'none', display: 'none', transition: 'background-color 0.15s ease, transform 0.15s ease'}} />
   </>
  );
 }
