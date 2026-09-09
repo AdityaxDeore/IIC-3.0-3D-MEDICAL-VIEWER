@@ -31,7 +31,7 @@ export interface SceneActions {
 interface Props {atlas:Atlas;state:SceneState;onSelect:(id:string)=>void;onProgress:(n:number)=>void;onError:(s:string)=>void;onMriUpload:(file:File)=>void;spawnToolRef:React.MutableRefObject<((tool:'screw'|'rod'|'clip')=>void)|null>;sceneActionsRef?:React.MutableRefObject<SceneActions|null>}
 export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,onMriUpload,spawnToolRef,sceneActionsRef}:Props){
  const host=useRef<HTMLDivElement>(null),latest=useRef(state),select=useRef(onSelect);
- const [mode, setMode] = useState<"standard" | "exoskeleton" | "mri" | "hidden">("standard");
+  const [mode, setMode] = useState<"standard" | "exoskeleton" | "mri" | "hidden" | "brainchop" | "yale" | "surgical_simulator" | "surgery">("standard");
  const [mriTarget, setMriTarget] = useState<"body" | "mri">("mri");
  const [transformMode, setTransformMode] = useState<"translate" | "rotate" | "scale">("translate");
  const [mriEditMode, setMriEditMode] = useState<"resize" | "align">("resize");
@@ -540,12 +540,10 @@ export default function AnatomyScene({atlas,state,onSelect,onProgress,onError,on
 
  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
   if (e.target.files && e.target.files[0] && onMriUploadRef.current) {
-mriEditorRef.current(e.target.files[0]);
+    onMriUploadRef.current(e.target.files[0]);
     onMriUpload(e.target.files[0]);
   }
  };
-
- const [mode, setMode] = useState<'standard' | 'mri' | 'brainchop' | 'yale' | 'surgical_simulator' | 'surgery'>('standard');
 
  const getAppUrl = (app: 'brainchop' | 'yale' | 'surgery') => {
    if (app === 'brainchop') return import.meta.env.DEV ? 'http://localhost:3017/' : '/brainchop/dist/index.html';
