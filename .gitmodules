@@ -1,0 +1,12 @@
+[submodule "OHIF-AI"]
+	path = OHIF-AI
+	url = https://github.com/CCI-Bonn/OHIF-AI.git
+[submodule "Soma-Health"]
+	path = Soma-Health
+	url = https://github.com/p5150j/-Soma-Health.git
+[submodule "triage-flow"]
+	path = triage-flow
+	url = https://github.com/CubeStar1/triage-flow.git
+[submodule "Surgery/anatomy"]
+	path = Surgery/anatomy
+	url = https://github.com/thebuggeddev/anatomy.git

@@ -17,10 +17,9 @@ Thumbs.db
 
 # Cloned external repos (each has its own .git)
 anatomy/
-brainchop/
 LiverSurgery/
-OHIF-AI/
-Soma-Health/
-Surgery/
-triage-flow/
 public/brainchop/
+
+# brainchop (vendored, keep source only)
+brainchop/node_modules/
+brainchop/dist/
