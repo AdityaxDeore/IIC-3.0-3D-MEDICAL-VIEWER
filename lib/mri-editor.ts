@@ -17,6 +17,8 @@ export class MriEditor {
   private initialPosition = new T.Vector3();
   private initialRotation = new T.Euler();
   private initialPointerWorld = new T.Vector3();
+  /** World -> geometry-local as of pointer-down, so scaling mid-drag can't skew the deltas. */
+  private inverseMatrix = new T.Matrix4();
   public onChange?: () => void;
   
   constructor(mesh: T.Mesh, camera: T.PerspectiveCamera, domElement: HTMLElement, overlay: HTMLElement, onChange?: () => void) {
@@ -72,7 +74,9 @@ export class MriEditor {
     this.initialScale.copy(this.mesh.scale);
     this.initialPosition.copy(this.mesh.position);
     this.initialRotation.copy(this.mesh.rotation);
-    
+    this.mesh.updateMatrixWorld();
+    this.inverseMatrix.copy(this.mesh.matrixWorld).invert();
+
     const worldPointer = this.getPointerWorld(e);
     if (worldPointer) {
       this.initialPointerWorld.copy(worldPointer);
